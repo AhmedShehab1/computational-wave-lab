@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+playwright-report/
+coverage/
+
+# Vite caches
+.vite
 
 # Editor directories and files
 .vscode/*
