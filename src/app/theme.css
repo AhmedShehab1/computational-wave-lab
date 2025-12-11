@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap');
+
+:root {
+  --bg-navy: #0f111a;
+  --text-primary: #e8f1ff;
+  --text-muted: #9fb2cc;
+  --accent-teal: #2fe0c7;
+  --warn-amber: #f0b429;
+  --error-red: #ff5c6c;
+  --panel: #161a26;
+  --panel-border: #1f2435;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+
+body {
+  background: var(--bg-navy);
+  color: var(--text-primary);
+  font-family: 'Space Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+}
