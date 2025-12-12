@@ -1,19 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 interface ParamSectionProps {
   title: string;
   icon?: string;
   defaultOpen?: boolean;
   children: React.ReactNode;
+  badge?: string;
 }
 
 const ParamSection: React.FC<ParamSectionProps> = ({
   title,
   icon,
   defaultOpen = false,
-  children
+  children,
+  badge
 }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | 'auto'>(defaultOpen ? 'auto' : 0);
+
+  useEffect(() => {
+    if (isOpen && contentRef.current) {
+      setHeight(contentRef.current.scrollHeight);
+    } else {
+      setHeight(0);
+    }
+  }, [isOpen]);
 
   return (
     <div className={`param-section ${isOpen ? 'open' : ''}`}>
@@ -26,12 +38,24 @@ const ParamSection: React.FC<ParamSectionProps> = ({
         onKeyDown={(e) => e.key === 'Enter' && setIsOpen(!isOpen)}
       >
         <h3>
-          {icon && <span style={{ marginRight: '6px' }}>{icon}</span>}
+          {icon && <span className="section-icon">{icon}</span>}
           {title}
+          {badge && <span className="section-badge">{badge}</span>}
         </h3>
         <span className="chevron">{isOpen ? '▼' : '▶'}</span>
       </div>
-      {isOpen && <div className="param-section-content">{children}</div>}
+      <div 
+        className="param-section-content-wrapper"
+        style={{ 
+          height: height === 'auto' ? 'auto' : `${height}px`,
+          overflow: 'hidden',
+          transition: 'height 0.2s ease-out'
+        }}
+      >
+        <div ref={contentRef} className="param-section-content">
+          {children}
+        </div>
+      </div>
     </div>
   );
 };
