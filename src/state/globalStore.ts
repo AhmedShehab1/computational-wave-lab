@@ -30,6 +30,7 @@ export interface GlobalState {
   outputImages: Record<OutputViewportId, ImageDataPayload | null>
   outputStatus: Record<OutputViewportId, 'idle' | 'mixing' | 'error'>
   mixerProgress: Record<OutputViewportId, number | null>
+  compareSelection: Record<OutputViewportId, string | null>
   mixerWeights: number[]
   presets: MixerPreset[]
   scenarios: SimulationState[]
@@ -75,6 +76,7 @@ export interface GlobalState {
   setEntities?: (entities: ArrayEntity[]) => void
   pushToast: (toast: Toast) => void
   removeToast: (id: string) => void
+  setCompareSelection: (target: OutputViewportId, snapshotId: string | null) => void
   setBeamConfig: (
     config: Partial<{
       arrays: ArrayEntity[]
@@ -100,6 +102,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   outputImages: { 1: null, 2: null },
   outputStatus: { 1: 'idle', 2: 'idle' },
   mixerProgress: { 1: null, 2: null },
+  compareSelection: { 1: null, 2: null },
   mixerWeights: [],
   presets: [],
   scenarios: [],
@@ -157,4 +160,6 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   setBeamStatus: (status) => set({ beamStatus: status }),
   pushToast: (toast) => set({ toasts: [...get().toasts, toast] }),
   removeToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+  setCompareSelection: (target, snapshotId) =>
+    set({ compareSelection: { ...get().compareSelection, [target]: snapshotId } }),
 }))
