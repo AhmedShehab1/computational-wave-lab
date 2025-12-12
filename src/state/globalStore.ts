@@ -33,6 +33,12 @@ export interface GlobalState {
   mixerWeights: number[]
   presets: MixerPreset[]
   scenarios: SimulationState[]
+  snapshots: {
+    id: string
+    viewport: OutputViewportId
+    image: ImageDataPayload
+    createdAt: number
+  }[]
   beamConfig: {
     arrays: ArrayEntity[]
     steering: { theta: number; phi: number }
@@ -45,12 +51,13 @@ export interface GlobalState {
   beamStatus: 'idle' | 'running' | 'error'
   undoStack: unknown[]
   redoStack: unknown[]
-  snapshots: string[]
   safeMode: SafeModeState
   telemetrySample: typeof TELEMETRY_SAMPLE
   toasts: Toast[]
   setSafeMode: (state: SafeModeState) => void
-  pushSnapshot: (id: string) => void
+  addSnapshot: (viewport: OutputViewportId, image: ImageDataPayload) => void
+  removeSnapshot: (id: string) => void
+  clearSnapshots: () => void
   setMixerWeights: (weights: number[]) => void
   setMixerConfig: (config: MixerWeights) => void
   setRegionMask: (mask: RegionMask) => void
@@ -96,6 +103,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   mixerWeights: [],
   presets: [],
   scenarios: [],
+  snapshots: [],
   beamConfig: {
     arrays: [],
     steering: { theta: 0, phi: 0 },
@@ -107,15 +115,19 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   beamStatus: 'idle',
   undoStack: [],
   redoStack: [],
-  snapshots: [],
   safeMode: { active: false },
   telemetrySample: TELEMETRY_SAMPLE,
   toasts: [],
   setSafeMode: (flag) => set({ safeMode: flag }),
-  pushSnapshot: (id) => {
-    const next = [...get().snapshots, id].slice(-SNAPSHOT_CAP)
+  addSnapshot: (viewport, image) => {
+    const entry = { id: crypto.randomUUID(), viewport, image, createdAt: Date.now() }
+    const next = [...get().snapshots, entry].slice(-SNAPSHOT_CAP)
     set({ snapshots: next })
   },
+  removeSnapshot: (id) => {
+    set({ snapshots: get().snapshots.filter((s) => s.id !== id) })
+  },
+  clearSnapshots: () => set({ snapshots: [] }),
   setMixerWeights: (weights) => set({ mixerWeights: weights }),
   setMixerConfig: (config) => set({ mixerConfig: config }),
   setRegionMask: (mask) => set({ regionMask: mask }),
