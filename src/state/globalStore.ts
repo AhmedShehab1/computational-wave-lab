@@ -13,6 +13,9 @@ import type {
   MixerPreset,
   SafeModeState,
   SimulationState,
+  BeamResult,
+  BeamRenderMode,
+  WidebandMode,
   Toast,
 } from '@/types'
 
@@ -26,9 +29,20 @@ export interface GlobalState {
   brightnessConfig: BrightnessConfig
   outputImages: Record<OutputViewportId, ImageDataPayload | null>
   outputStatus: Record<OutputViewportId, 'idle' | 'mixing' | 'error'>
+  mixerProgress: Record<OutputViewportId, number | null>
   mixerWeights: number[]
   presets: MixerPreset[]
   scenarios: SimulationState[]
+  beamConfig: {
+    arrays: ArrayEntity[]
+    steering: { theta: number; phi: number }
+    renderMode: BeamRenderMode
+    widebandMode: WidebandMode
+    resolution: number
+    bounds?: { xMin: number; xMax: number; yMin: number; yMax: number }
+  }
+  beamResult: BeamResult | null
+  beamStatus: 'idle' | 'running' | 'error'
   undoStack: unknown[]
   redoStack: unknown[]
   snapshots: string[]
@@ -47,12 +61,25 @@ export interface GlobalState {
   clearImages: () => void
   setOutputImage: (id: OutputViewportId, data: ImageDataPayload | null) => void
   setOutputStatus: (id: OutputViewportId, status: 'idle' | 'mixing' | 'error') => void
+  setMixerProgress: (id: OutputViewportId, progress: number | null) => void
   setWorkspaceDimensions: (dims: { width: number; height: number }) => void
   setNormalizedSize: (dims: { width: number; height: number }) => void
   setScenarios: (scenarios: SimulationState[]) => void
   setEntities?: (entities: ArrayEntity[]) => void
   pushToast: (toast: Toast) => void
   removeToast: (id: string) => void
+  setBeamConfig: (
+    config: Partial<{
+      arrays: ArrayEntity[]
+      steering: { theta: number; phi: number }
+      renderMode: BeamRenderMode
+      widebandMode: WidebandMode
+      resolution: number
+      bounds?: { xMin: number; xMax: number; yMin: number; yMax: number }
+    }>
+  ) => void
+  setBeamResult: (result: BeamResult | null) => void
+  setBeamStatus: (status: 'idle' | 'running' | 'error') => void
 }
 
 export const useGlobalStore = create<GlobalState>((set, get) => ({
@@ -65,9 +92,19 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   brightnessConfig: { target: 'spatial', value: 0, contrast: 1 },
   outputImages: { 1: null, 2: null },
   outputStatus: { 1: 'idle', 2: 'idle' },
+  mixerProgress: { 1: null, 2: null },
   mixerWeights: [],
   presets: [],
   scenarios: [],
+  beamConfig: {
+    arrays: [],
+    steering: { theta: 0, phi: 0 },
+    renderMode: 'interference',
+    widebandMode: 'aggregated',
+    resolution: 128,
+  },
+  beamResult: null,
+  beamStatus: 'idle',
   undoStack: [],
   redoStack: [],
   snapshots: [],
@@ -95,12 +132,17 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   setOutputImage: (id, data) => set({ outputImages: { ...get().outputImages, [id]: data } }),
   setOutputStatus: (id, status) =>
     set({ outputStatus: { ...get().outputStatus, [id]: status } }),
+  setMixerProgress: (id, progress) =>
+    set({ mixerProgress: { ...get().mixerProgress, [id]: progress } }),
   setWorkspaceDimensions: (dims) => set({ workspaceDimensions: dims }),
   setNormalizedSize: (dims) => set({ normalizedSize: dims }),
   setScenarios: (scenarios) => set({ scenarios }),
   setEntities: () => {
     // placeholder for array entity mutations
   },
+  setBeamConfig: (partial) => set({ beamConfig: { ...get().beamConfig, ...partial } }),
+  setBeamResult: (result) => set({ beamResult: result }),
+  setBeamStatus: (status) => set({ beamStatus: status }),
   pushToast: (toast) => set({ toasts: [...get().toasts, toast] }),
   removeToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }))

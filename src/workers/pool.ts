@@ -7,6 +7,7 @@ export type WorkerJobType = 'image-dsp' | 'beam-sim'
 interface WorkerJob<TPayload = unknown> {
   id: JobToken
   payload: TPayload
+    onProgress?: (progress: number) => void
 }
 
 interface WorkerEntry {
@@ -24,7 +25,12 @@ export class WorkerManager<TPayload = unknown> {
   private workers: WorkerEntry[] = []
   private handlers = new Map<
     JobToken,
-    { resolve: (value: unknown) => void; reject: (reason?: unknown) => void; worker?: WorkerEntry }
+    {
+      resolve: (value: unknown) => void
+      reject: (reason?: unknown) => void
+      onProgress?: (progress: number) => void
+      worker?: WorkerEntry
+    }
   >()
   private idleTimer: number | null = null
 
@@ -44,6 +50,7 @@ export class WorkerManager<TPayload = unknown> {
     return new Promise((resolve, reject) => {
       this.queue.push(job)
       this.handlers.set(job.id, { resolve, reject })
+        this.handlers.set(job.id, { resolve, reject, onProgress: job.onProgress })
       this.tick()
     })
   }
@@ -108,6 +115,11 @@ export class WorkerManager<TPayload = unknown> {
         const handler = this.handlers.get(envelope.jobId)
         if (!handler) return
 
+        if (envelope.type === 'JOB_PROGRESS') {
+          if (typeof envelope.progress === 'number') handler.onProgress?.(envelope.progress)
+          return
+        }
+
         if (envelope.type === 'JOB_COMPLETE') {
           handler.resolve(envelope.payload ?? null)
         } else if (envelope.type === 'JOB_ERROR') {
@@ -162,10 +174,11 @@ export class WorkerManager<TPayload = unknown> {
 
 function extractTransfer(payload: unknown): Transferable[] {
   if (!payload || typeof payload !== 'object') return []
-  const maybe = payload as { fileArrayBuffer?: ArrayBuffer; pixels?: Uint8ClampedArray }
   const transfers: Transferable[] = []
+  const maybe = payload as { fileArrayBuffer?: ArrayBuffer; pixels?: Uint8ClampedArray; heatmap?: Float32Array }
   if (maybe.fileArrayBuffer) transfers.push(maybe.fileArrayBuffer)
-  if (maybe.pixels && maybe.pixels.buffer) transfers.push(maybe.pixels.buffer)
+  if (maybe.pixels?.buffer) transfers.push(maybe.pixels.buffer)
+  if (maybe.heatmap?.buffer) transfers.push(maybe.heatmap.buffer)
   return transfers
 }
 
@@ -175,8 +188,11 @@ const createImageWorker: CreateWorkerFn = () =>
 const createFftWorker: CreateWorkerFn = () =>
   new Worker(new URL('./fft-mixer.worker.ts', import.meta.url), { type: 'module' })
 
+const createBeamWorker: CreateWorkerFn = () =>
+  new Worker(new URL('./beam-sim.worker.ts', import.meta.url), { type: 'module' })
+
 export const imageWorkerPool = new WorkerManager(createImageWorker, workerPoolConfig)
-export const beamWorkerPool = new WorkerManager(createImageWorker, {
+export const beamWorkerPool = new WorkerManager(createBeamWorker, {
   ...workerPoolConfig,
   warmupOnLoad: false,
 })
