@@ -15,6 +15,12 @@ export interface WorkerMessageEnvelope<TPayload = unknown> {
   progress?: number
 }
 
+export interface FftMixerJob {
+  type: 'JOB_START'
+  jobId: JobToken
+  payload: unknown
+}
+
 export interface ImageJobPayload {
   fileArrayBuffer?: ArrayBuffer
   fileType?: string
