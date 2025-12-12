@@ -42,6 +42,20 @@ export function OutputViewport({ title, image, loading, showSpectrum, spectrumDa
     const w = canvas.width
     const h = canvas.height
     ctx.clearRect(0, 0, w, h)
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+    ctx.lineWidth = 1
+    for (let x = 0; x <= w; x += 16) {
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, h)
+      ctx.stroke()
+    }
+    for (let y = 0; y <= h; y += 16) {
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(w, y)
+      ctx.stroke()
+    }
     const max = Math.max(...spectrumData) || 1
     ctx.strokeStyle = 'var(--accent, #4dd0e1)'
     ctx.beginPath()
@@ -62,10 +76,24 @@ export function OutputViewport({ title, image, loading, showSpectrum, spectrumDa
         <span>{title}</span>
         {safeMode ? <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Safe Mode</span> : null}
       </div>
-      <canvas ref={canvasRef} width={dims.width} height={dims.height} style={{ width: '100%', background: '#0b1020' }} />
+      <canvas
+        ref={canvasRef}
+        width={dims.width}
+        height={dims.height}
+        style={{ width: '100%', background: '#0b1020' }}
+        aria-label={`${title} output canvas`}
+        role="img"
+      />
       {showSpectrum && spectrumData ? (
         <div style={{ position: 'absolute', right: 8, bottom: 8, width: 140, height: 70, background: 'rgba(0,0,0,0.4)', borderRadius: 4, padding: 4 }}>
-          <canvas ref={spectrumRef} width={132} height={62} style={{ width: '100%', height: '100%' }} />
+          <canvas
+            ref={spectrumRef}
+            width={132}
+            height={62}
+            style={{ width: '100%', height: '100%' }}
+            aria-label="Spectrum inset"
+            role="img"
+          />
         </div>
       ) : null}
       {loading ? <div style={spinnerStyle}>Processing…</div> : null}
