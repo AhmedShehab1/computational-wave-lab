@@ -28,6 +28,8 @@ export function ToastStack() {
         zIndex: 20,
       }}
       aria-live="assertive"
+      aria-atomic="true"
+      role="status"
     >
       {toasts.map((toast) => (
         <div
