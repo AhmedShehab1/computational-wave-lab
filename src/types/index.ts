@@ -22,22 +22,12 @@ export interface WorkerErrorEvent {
   timestamp: number
 }
 
-export interface MixerJobPayload {
-  weights: number[]
-  regionMask: number[][]
-  brightnessConfig: {
-    target: 'spatial' | 'ft'
-    value: number
-    contrast: number
-  }
-}
-
 export interface MixerPreset {
   version: '1.0.0'
   timestamp: number
-  weights: MixerJobPayload['weights']
-  regionMask: MixerJobPayload['regionMask']
-  brightnessConfig: MixerJobPayload['brightnessConfig']
+  weights: MixerWeights['values']
+  regionMask: RegionMask
+  brightnessConfig: BrightnessConfig
 }
 
 export interface SimulationState {
@@ -88,4 +78,37 @@ export interface ImageDataPayload {
   width: number
   height: number
   pixels: Uint8ClampedArray
+}
+
+export interface MixerWeights {
+  values: number[]
+  locked?: boolean
+}
+
+export type RegionShape = 'circle' | 'rect'
+export type RegionMode = 'include' | 'exclude'
+
+export interface RegionMask {
+  shape: RegionShape
+  mode: RegionMode
+  radius?: number // normalized 0-1
+  width?: number // normalized 0-1
+  height?: number // normalized 0-1
+}
+
+export interface BrightnessConfig {
+  target: 'spatial' | 'ft'
+  value: number
+  contrast: number
+}
+
+export type OutputViewportId = 1 | 2
+
+export interface MixerJobPayload {
+  images: Array<{ id: ImageSlotId; width: number; height: number; pixels: Uint8ClampedArray }>
+  weights: MixerWeights
+  regionMask: RegionMask
+  brightnessConfig: BrightnessConfig
+  targetViewport: OutputViewportId
+  fftMode?: 'js' | 'wasm'
 }
