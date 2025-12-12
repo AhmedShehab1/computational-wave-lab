@@ -172,8 +172,13 @@ function extractTransfer(payload: unknown): Transferable[] {
 const createImageWorker: CreateWorkerFn = () =>
   new Worker(new URL('./image-dsp.worker.ts', import.meta.url), { type: 'module' })
 
+const createFftWorker: CreateWorkerFn = () =>
+  new Worker(new URL('./fft-mixer.worker.ts', import.meta.url), { type: 'module' })
+
 export const imageWorkerPool = new WorkerManager(createImageWorker, workerPoolConfig)
 export const beamWorkerPool = new WorkerManager(createImageWorker, {
   ...workerPoolConfig,
   warmupOnLoad: false,
 })
+
+export const fftWorkerPool = new WorkerManager(createFftWorker, workerPoolConfig)
