@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 export type BeamTabType = 'interactive' | 'interference' | 'slice' | 'geometry';
+export type VisualizationMode = 'polar' | 'interference' | 'slice';
 
 interface BeamformingPanelProps {
   activeTab: BeamTabType;
@@ -15,6 +16,7 @@ interface BeamformingPanelProps {
   loading?: boolean;
   renderMode?: 'polar' | 'linear';
   onRenderModeChange?: (mode: 'polar' | 'linear') => void;
+  showSyncedViews?: boolean;
 }
 
 export const BeamformingPanel: React.FC<BeamformingPanelProps> = ({
@@ -29,14 +31,32 @@ export const BeamformingPanel: React.FC<BeamformingPanelProps> = ({
   arrayGeometry = [],
   loading = false,
   renderMode = 'polar',
-  onRenderModeChange
+  onRenderModeChange,
+  showSyncedViews = true
 }) => {
-  const tabs: { id: BeamTabType; label: string }[] = [
-    { id: 'interactive', label: 'Interactive Canvas' },
-    { id: 'interference', label: 'Interference Map' },
-    { id: 'slice', label: 'Beam Slice' },
-    { id: 'geometry', label: 'Array Geometry' }
+  const [visibleModes, setVisibleModes] = useState<Set<VisualizationMode>>(
+    new Set(['polar', 'interference', 'slice'])
+  );
+
+  const tabs: { id: BeamTabType; label: string; shortLabel: string }[] = [
+    { id: 'interactive', label: 'Interactive Canvas', shortLabel: 'Interactive' },
+    { id: 'interference', label: 'Interference Map', shortLabel: 'Interference' },
+    { id: 'slice', label: 'Beam Slice', shortLabel: 'Slice' },
+    { id: 'geometry', label: 'Array Geometry', shortLabel: 'Geometry' }
   ];
+
+  const toggleVisualization = useCallback((mode: VisualizationMode) => {
+    setVisibleModes(prev => {
+      const next = new Set(prev);
+      if (next.has(mode)) {
+        // Don't allow removing all views
+        if (next.size > 1) next.delete(mode);
+      } else {
+        next.add(mode);
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <div className="panel beam-panel">
@@ -45,6 +65,31 @@ export const BeamformingPanel: React.FC<BeamformingPanelProps> = ({
           <span className="part-label">Part B</span>
           <span className="accent">Beamforming Simulator</span>
         </h2>
+        {showSyncedViews && (
+          <div className="view-mode-toggles">
+            <button
+              className={`view-toggle ${visibleModes.has('polar') ? 'active' : ''}`}
+              onClick={() => toggleVisualization('polar')}
+              title="Toggle polar view"
+            >
+              ◎
+            </button>
+            <button
+              className={`view-toggle ${visibleModes.has('interference') ? 'active' : ''}`}
+              onClick={() => toggleVisualization('interference')}
+              title="Toggle interference view"
+            >
+              ▦
+            </button>
+            <button
+              className={`view-toggle ${visibleModes.has('slice') ? 'active' : ''}`}
+              onClick={() => toggleVisualization('slice')}
+              title="Toggle slice view"
+            >
+              📊
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="beam-tabs">
@@ -55,13 +100,27 @@ export const BeamformingPanel: React.FC<BeamformingPanelProps> = ({
             onClick={() => onTabChange(tab.id)}
             aria-selected={activeTab === tab.id}
           >
-            {tab.label}
+            <span className="tab-full">{tab.label}</span>
+            <span className="tab-short">{tab.shortLabel}</span>
           </button>
         ))}
       </div>
 
       <div className="panel-content">
-        {activeTab === 'interactive' && (
+        {activeTab === 'interactive' && showSyncedViews ? (
+          <SyncedVisualization
+            steerAngle={steerAngle}
+            steerRadius={steerRadius}
+            onSteeringChange={onSteeringChange}
+            polarData={polarData}
+            heatmapData={heatmapData}
+            sliceData={sliceData}
+            visibleModes={visibleModes}
+            loading={loading}
+            renderMode={renderMode}
+            onRenderModeChange={onRenderModeChange}
+          />
+        ) : activeTab === 'interactive' ? (
           <InteractiveCanvas
             steerAngle={steerAngle}
             steerRadius={steerRadius}
@@ -71,7 +130,7 @@ export const BeamformingPanel: React.FC<BeamformingPanelProps> = ({
             renderMode={renderMode}
             onRenderModeChange={onRenderModeChange}
           />
-        )}
+        ) : null}
 
         {activeTab === 'interference' && (
           <InterferenceMap heatmapData={heatmapData} loading={loading} />
@@ -89,6 +148,84 @@ export const BeamformingPanel: React.FC<BeamformingPanelProps> = ({
   );
 };
 
+// Synced visualization - shows all 3 modes together
+interface SyncedVisualizationProps {
+  steerAngle: number;
+  steerRadius: number;
+  onSteeringChange: (angle: number, radius: number) => void;
+  polarData: ImageData | null;
+  heatmapData: ImageData | null;
+  sliceData?: number[];
+  visibleModes: Set<VisualizationMode>;
+  loading?: boolean;
+  renderMode?: 'polar' | 'linear';
+  onRenderModeChange?: (mode: 'polar' | 'linear') => void;
+}
+
+const SyncedVisualization: React.FC<SyncedVisualizationProps> = ({
+  steerAngle,
+  steerRadius,
+  onSteeringChange,
+  polarData,
+  heatmapData,
+  sliceData,
+  visibleModes,
+  loading,
+  renderMode,
+  onRenderModeChange
+}) => {
+  const modeCount = visibleModes.size;
+  
+  return (
+    <div className={`synced-visualization modes-${modeCount}`}>
+      {visibleModes.has('polar') && (
+        <div className="synced-view polar-view">
+          <div className="view-label">Polar Pattern</div>
+          <InteractiveCanvas
+            steerAngle={steerAngle}
+            steerRadius={steerRadius}
+            onSteeringChange={onSteeringChange}
+            polarData={polarData}
+            loading={loading}
+            renderMode={renderMode}
+            onRenderModeChange={onRenderModeChange}
+            compact
+          />
+        </div>
+      )}
+      
+      {visibleModes.has('interference') && (
+        <div className="synced-view interference-view">
+          <div className="view-label">Interference Pattern</div>
+          <InterferenceMap 
+            heatmapData={heatmapData} 
+            loading={loading}
+            steerAngle={steerAngle}
+            compact
+          />
+        </div>
+      )}
+      
+      {visibleModes.has('slice') && (
+        <div className="synced-view slice-view">
+          <div className="view-label">Beam Slice at {steerAngle}°</div>
+          <BeamSlice 
+            data={sliceData} 
+            angle={steerAngle}
+            compact
+          />
+        </div>
+      )}
+      
+      {/* Steering info overlay */}
+      <div className="steering-info-overlay">
+        <span>θ = {steerAngle}°</span>
+        <span>r = {steerRadius.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+};
+
 // Interactive Canvas with polar plot
 interface InteractiveCanvasProps {
   steerAngle: number;
@@ -98,6 +235,7 @@ interface InteractiveCanvasProps {
   loading?: boolean;
   renderMode?: 'polar' | 'linear';
   onRenderModeChange?: (mode: 'polar' | 'linear') => void;
+  compact?: boolean;
 }
 
 const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
@@ -107,7 +245,8 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
   polarData,
   loading,
   renderMode,
-  onRenderModeChange
+  onRenderModeChange,
+  compact = false
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -228,20 +367,21 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const size = Math.min(container.offsetWidth, 320);
+    const maxSize = compact ? 200 : 320;
+    const size = Math.min(container.offsetWidth, maxSize);
     canvas.width = size * window.devicePixelRatio;
     canvas.height = size * window.devicePixelRatio;
     canvas.style.width = `${size}px`;
     canvas.style.height = `${size}px`;
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  }, []);
+  }, [compact]);
 
   return (
-    <div>
+    <div className={compact ? 'compact-canvas' : ''}>
       <div 
         ref={containerRef}
-        className="polar-canvas-container"
+        className={`polar-canvas-container ${compact ? 'compact' : ''}`}
         onMouseDown={handleMouseDown}
         role="slider"
         aria-label="Beam steering control"
@@ -306,9 +446,11 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 interface InterferenceMapProps {
   heatmapData: ImageData | null;
   loading?: boolean;
+  steerAngle?: number;
+  compact?: boolean;
 }
 
-const InterferenceMap: React.FC<InterferenceMapProps> = ({ heatmapData, loading }) => {
+const InterferenceMap: React.FC<InterferenceMapProps> = ({ heatmapData, loading, steerAngle, compact = false }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -322,11 +464,28 @@ const InterferenceMap: React.FC<InterferenceMapProps> = ({ heatmapData, loading 
       canvas.width = heatmapData.width;
       canvas.height = heatmapData.height;
       ctx.putImageData(heatmapData, 0, 0);
+      
+      // Draw steering angle indicator if provided
+      if (steerAngle !== undefined) {
+        const rad = (steerAngle * Math.PI) / 180;
+        const cx = heatmapData.width / 2;
+        const cy = heatmapData.height / 2;
+        const len = Math.min(cx, cy) * 0.8;
+        
+        ctx.strokeStyle = 'rgba(77, 208, 225, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(rad) * len, cy - Math.sin(rad) * len);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
-  }, [heatmapData]);
+  }, [heatmapData, steerAngle]);
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative' }} className={compact ? 'compact-view' : ''}>
       {loading && (
         <div style={{
           position: 'absolute',
@@ -341,7 +500,7 @@ const InterferenceMap: React.FC<InterferenceMapProps> = ({ heatmapData, loading 
         </div>
       )}
       <div style={{
-        aspectRatio: '16/10',
+        aspectRatio: compact ? '1' : '16/10',
         background: 'var(--bg-dark)',
         borderRadius: 'var(--radius-sm)',
         overflow: 'hidden'
@@ -356,9 +515,10 @@ const InterferenceMap: React.FC<InterferenceMapProps> = ({ heatmapData, loading 
 interface BeamSliceProps {
   data?: number[];
   angle: number;
+  compact?: boolean;
 }
 
-const BeamSlice: React.FC<BeamSliceProps> = ({ data = [], angle }) => {
+const BeamSlice: React.FC<BeamSliceProps> = ({ data = [], angle, compact = false }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -400,24 +560,26 @@ const BeamSlice: React.FC<BeamSliceProps> = ({ data = [], angle }) => {
     }
     ctx.stroke();
 
-    // Draw labels
-    ctx.fillStyle = 'var(--text-muted)';
-    ctx.font = '10px system-ui';
-    ctx.fillText('0 dB', 4, 14);
-    ctx.fillText('-60 dB', 4, height - 4);
-    ctx.fillText(`Slice at ${angle}°`, width / 2 - 30, height - 4);
+    // Draw labels (skip in compact mode)
+    if (!compact) {
+      ctx.fillStyle = 'var(--text-muted)';
+      ctx.font = '10px system-ui';
+      ctx.fillText('0 dB', 4, 14);
+      ctx.fillText('-60 dB', 4, height - 4);
+      ctx.fillText(`Slice at ${angle}°`, width / 2 - 30, height - 4);
+    }
 
-  }, [data, angle]);
+  }, [data, angle, compact]);
 
   return (
-    <div style={{ padding: '12px 0' }}>
+    <div style={{ padding: compact ? '0' : '12px 0' }}>
       <canvas
         ref={canvasRef}
         width={400}
-        height={150}
+        height={compact ? 100 : 150}
         style={{
           width: '100%',
-          height: '150px',
+          height: compact ? '100px' : '150px',
           background: 'var(--bg-dark)',
           borderRadius: 'var(--radius-sm)'
         }}
