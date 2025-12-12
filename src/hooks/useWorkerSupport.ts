@@ -18,7 +18,7 @@ export function useWorkerSupport() {
       setSupported(false)
       const e = err instanceof Error ? err : new Error('Worker unsupported')
       setError(e)
-      setSafeMode(true)
+      setSafeMode({ active: true, reason: e.message })
     }
   }, [setSafeMode])
 
