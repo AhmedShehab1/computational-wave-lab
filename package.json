@@ -16,6 +16,7 @@
     "classnames": "^2.5.1",
     "fft.js": "^4.0.4",
     "immer": "^10.1.1",
+    "kissfft-js": "^0.1.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zustand": "^4.5.4"
