@@ -8,12 +8,14 @@ interface WorkerJob<TPayload = unknown> {
   id: JobToken
   type: WorkerJobType
   payload: TPayload
+  resolve: (value?: unknown) => void
+  reject: (reason?: unknown) => void
 }
 
 export class WorkerManager {
   private config: WorkerPoolConfig
   private queue: WorkerJob[] = []
-  private workers: Worker[] = []
+  private busy = 0
   private idleTimer: number | null = null
 
   constructor(config: WorkerPoolConfig = workerPoolConfig) {
@@ -23,18 +25,41 @@ export class WorkerManager {
     }
   }
 
-  enqueue<TPayload>(job: WorkerJob<TPayload>): boolean {
+  enqueue<TPayload>(job: Omit<WorkerJob<TPayload>, 'resolve' | 'reject'>): Promise<unknown> {
     if (this.queue.length >= this.config.maxQueueDepth) {
-      return false
+      return Promise.reject(new Error('Queue depth exceeded'))
     }
-    this.queue.push(job)
-    // TODO: dispatch to an available worker and handle lifecycle
-    this.scheduleIdleCleanup()
-    return true
+
+    return new Promise((resolve, reject) => {
+      this.queue.push({ ...job, resolve, reject })
+      this.tick()
+    })
+  }
+
+  private tick() {
+    if (this.queue.length === 0) {
+      this.scheduleIdleCleanup()
+      return
+    }
+
+    const capacity = this.config.poolSize - this.busy
+    if (capacity <= 0) return
+
+    for (let i = 0; i < capacity; i += 1) {
+      const job = this.queue.shift()
+      if (!job) break
+      this.busy += 1
+      // TODO: bind to real worker; simulate for now
+      setTimeout(() => {
+        job.resolve({ jobId: job.id, status: 'complete' })
+        this.busy -= 1
+        this.tick()
+      }, 10)
+    }
   }
 
   private warmup() {
-    // TODO: spin up worker instances for both job types
+    // TODO: spin up real worker instances per job type
   }
 
   private scheduleIdleCleanup() {
@@ -47,8 +72,10 @@ export class WorkerManager {
   }
 
   private teardown() {
-    this.workers.forEach((w) => w.terminate())
-    this.workers = []
     this.queue = []
+    this.busy = 0
   }
 }
+
+export const imageWorkerPool = new WorkerManager(workerPoolConfig)
+export const beamWorkerPool = new WorkerManager(workerPoolConfig)
