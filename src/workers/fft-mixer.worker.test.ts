@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { runMixerJob } from './fft-mixer.worker'
 
 // In this environment Worker is not available; stub a minimal Worker to echo JOB_COMPLETE.
 class MockWorker {
@@ -58,5 +59,21 @@ describe('fft-mixer.worker', () => {
 
     expect(result.pixels.length).toBe(pixels.length)
     worker.terminate()
+  })
+})
+
+describe('runMixerJob helpers', () => {
+  it('handles region masks and weights without throwing', async () => {
+    const payload = {
+      images: [{ id: 'A', width: 2, height: 2, pixels: new Uint8ClampedArray([1, 2, 3, 4]) }],
+      weights: { values: [0.5, 0.5, 0.5, 0.5], locked: false },
+      regionMask: { shape: 'circle', mode: 'exclude', radius: 0 },
+      brightnessConfig: { target: 'spatial', value: 0, contrast: 1 },
+      targetViewport: 1,
+      fftMode: 'js',
+    }
+    const result = await runMixerJob('test-job', payload as any)
+    expect(result.width).toBe(2)
+    expect(result.pixels.length).toBe(4)
   })
 })
