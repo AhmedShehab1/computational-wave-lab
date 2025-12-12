@@ -5,6 +5,8 @@ export function ToastStack() {
   const toasts = useGlobalStore((s) => s.toasts)
   const removeToast = useGlobalStore((s) => s.removeToast)
 
+  const hasAssertive = toasts.some((t) => t.type === 'error' || t.type === 'warning')
+
   useEffect(() => {
     const timers = toasts.map((toast) =>
       setTimeout(() => removeToast(toast.id), toast.duration ?? 2500),
@@ -27,9 +29,8 @@ export function ToastStack() {
         gap: 8,
         zIndex: 20,
       }}
-      aria-live="assertive"
+      aria-live={hasAssertive ? 'assertive' : 'polite'}
       aria-atomic="true"
-      role="status"
     >
       {toasts.map((toast) => (
         <div
@@ -43,6 +44,8 @@ export function ToastStack() {
             boxShadow: 'var(--shadow-soft)',
             minWidth: 220,
           }}
+          role={toast.type === 'error' || toast.type === 'warning' ? 'alert' : 'status'}
+          aria-live={toast.type === 'error' || toast.type === 'warning' ? 'assertive' : 'polite'}
         >
           {toast.message}
         </div>
