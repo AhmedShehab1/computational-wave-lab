@@ -52,19 +52,25 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayloa
 async function runMixerJob(jobId: string, payload: MixerJobPayload) {
   validatePayload(payload)
   let modeUsed: MixerJobPayload['fftMode'] = payload.fftMode || 'js'
-  let adapter = await getFftAdapter({ mode: modeUsed })
-  if (modeUsed === 'wasm') {
-    try {
-      adapter = await getFftAdapter({ mode: 'wasm' })
-      modeUsed = 'wasm'
-    } catch (err) {
-      modeUsed = 'js'
-      adapter = await getFftAdapter({ mode: 'js' })
-    }
-  }
+  const maxElements = 1024 * 1024
   const first = payload.images[0] as typeof payload.images[number]
   const width = first.width
   const height = first.height
+  let adapter = await getFftAdapter({ mode: modeUsed })
+  if (modeUsed === 'wasm') {
+    if (width * height > maxElements) {
+      modeUsed = 'js'
+      adapter = await getFftAdapter({ mode: 'js' })
+    } else {
+      try {
+        adapter = await getFftAdapter({ mode: 'wasm' })
+        modeUsed = 'wasm'
+      } catch (err) {
+        modeUsed = 'js'
+        adapter = await getFftAdapter({ mode: 'js' })
+      }
+    }
+  }
 
   const brightnessValue = clamp(payload.brightnessConfig.value, -255, 255)
   const brightnessContrast = clamp(payload.brightnessConfig.contrast, 0.01, 10)
