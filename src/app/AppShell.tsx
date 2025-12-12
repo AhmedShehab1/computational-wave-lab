@@ -12,6 +12,7 @@ import { useGlobalStore } from '@/state/globalStore'
 import { beamWorkerPool, fftWorkerPool, imageWorkerPool } from '@/workers/pool'
 import { mapHeatmapToImageData } from '@/utils/colormap'
 import { computeRowSpectrum } from '@/utils/spectrum'
+import { fftMode } from '@/config/runtime'
 import type { BeamJobPayload, FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
 
 const shellStyle: CSSProperties = {
@@ -67,6 +68,8 @@ export function AppShell() {
   const mixerProgress = useGlobalStore((s) => s.mixerProgress)
   const setMixerProgress = useGlobalStore((s) => s.setMixerProgress)
   const snapshots = useGlobalStore((s) => s.snapshots)
+  const compareSelection = useGlobalStore((s) => s.compareSelection)
+  const setCompareSelection = useGlobalStore((s) => s.setCompareSelection)
   const addSnapshot = useGlobalStore((s) => s.addSnapshot)
   const beamConfig = useGlobalStore((s) => s.beamConfig)
   const setBeamConfig = useGlobalStore((s) => s.setBeamConfig)
@@ -96,8 +99,14 @@ export function AppShell() {
         return
       }
 
+      const validFiles = files.filter((file) => file.type.startsWith('image/'))
+      if (!validFiles.length) {
+        pushToast({ id: crypto.randomUUID(), type: 'error', message: 'Only image files are supported.' })
+        return
+      }
+
       const slots: FileSlot[] = ['A', 'B', 'C', 'D']
-      const metas: FileMeta[] = files.slice(0, slots.length).map((file, idx) => ({
+      const metas: FileMeta[] = validFiles.slice(0, slots.length).map((file, idx) => ({
         id: slots[idx],
         name: file.name,
         size: file.size,
@@ -109,7 +118,7 @@ export function AppShell() {
       // First pass: decode to determine sizes
       const firstPassResults = await Promise.all(
         metas.map(async (meta, idx) => {
-          const file = files[idx]
+          const file = validFiles[idx]
           if (!file) return null
           setLoadingSlots((prev) => ({ ...prev, [meta.id]: true }))
           const buffer = await file.arrayBuffer()
@@ -201,7 +210,10 @@ export function AppShell() {
 
   const runMix = useCallback(
     async (target: OutputViewportId) => {
-      if (safeMode.active) return
+      if (safeMode.active) {
+        pushToast({ id: crypto.randomUUID(), type: 'warning', message: 'Safe mode enabled. Mixing is paused.' })
+        return
+      }
       const loadedImages = Object.entries(images)
         .map(([id, data]) =>
           data ? { id: id as FileSlot, width: data.width, height: data.height, pixels: data.pixels } : null,
@@ -220,7 +232,7 @@ export function AppShell() {
         regionMask,
         brightnessConfig,
         targetViewport: target,
-        fftMode: 'js',
+        fftMode,
       }
       try {
         const result = (await fftWorkerPool.enqueue({
@@ -231,6 +243,10 @@ export function AppShell() {
           width: number
           height: number
           pixels: Uint8ClampedArray
+          modeUsed?: MixerJobPayload['fftMode']
+        }
+        if (fftMode === 'wasm' && result.modeUsed !== 'wasm') {
+          pushToast({ id: crypto.randomUUID(), type: 'warning', message: 'Wasm FFT unavailable, fell back to JS.' })
         }
         setOutputImage(target, result)
         pushToast({
@@ -256,6 +272,10 @@ export function AppShell() {
   const runBeamSim = useCallback(async (config?: typeof beamConfig) => {
     if (safeMode.active) return
     const effective = config ?? beamConfigRef.current
+    if (!effective.arrays.length) {
+      pushToast({ id: crypto.randomUUID(), type: 'warning', message: 'Add at least one array element before simulating.' })
+      return
+    }
     setBeamStatus('running')
     const jobId = `beam-${crypto.randomUUID()}`
     const payload: BeamJobPayload = {
@@ -301,6 +321,27 @@ export function AppShell() {
     if (beamDebounce.current) window.clearTimeout(beamDebounce.current)
   }, [])
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'r') {
+        e.preventDefault()
+        runMix(1)
+      }
+      if (e.key === 'b') {
+        e.preventDefault()
+        runBeamSim()
+      }
+      if (e.key === 'c') {
+        e.preventDefault()
+        setShowSpectrum((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [runBeamSim, runMix, setShowSpectrum])
+
   return (
     <div style={shellStyle}>
       <SafeModeBanner
@@ -321,16 +362,19 @@ export function AppShell() {
           <RegionControls />
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
             <button onClick={() => runMix(1)} disabled={safeMode.active || outputStatus[1] === 'mixing'} title="Runs FFT mix into Output 1">
-              {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}
+              {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}{' '}
+              <span style={{ fontSize: 11, paddingLeft: 6, color: 'var(--text-muted)' }}>
+                {safeMode.active ? 'Safe Mode' : outputStatus[1] === 'mixing' ? 'Mixing…' : 'Ready'}
+              </span>
             </button>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={showSpectrum}
-                onChange={(e) => setShowSpectrum(e.target.checked)}
-              />
-              Show contributing spectrum
-            </label>
+            <button
+              onClick={() => setShowSpectrum((prev) => !prev)}
+              aria-pressed={showSpectrum}
+              style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}
+              title="Toggle spectrum overlay"
+            >
+              <span>{showSpectrum ? 'Hide spectrum' : 'Show spectrum'}</span>
+            </button>
             {safeMode.active ? <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Processing disabled in Safe Mode</span> : null}
           </div>
           {outputStatus[1] === 'mixing' && (
@@ -370,38 +414,111 @@ export function AppShell() {
               >
                 Snapshot
               </button>
-              <label style={{ fontSize: 12 }}>Compare (placeholder)</label>
+              <label style={{ fontSize: 12 }}>Compare target</label>
+              <button
+                onClick={() => setCompareSelection(1, null)}
+                disabled={!compareSelection[1]}
+                aria-disabled={!compareSelection[1]}
+                style={{ fontSize: 12 }}
+              >
+                Clear
+              </button>
             </div>
             {snapshots.filter((s) => s.viewport === 1).length ? (
-              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: 4, border: '1px solid var(--panel-border)', borderRadius: 6 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  overflowX: 'auto',
+                  padding: 4,
+                  border: '1px solid var(--panel-border)',
+                  borderRadius: 6,
+                  backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
+                  backgroundSize: '100% 12px',
+                }}
+                role="listbox"
+                aria-label="Snapshots for Output 1"
+              >
                 {snapshots
                   .filter((s) => s.viewport === 1)
-                  .map((snap) => (
-                    <canvas
-                      key={snap.id}
-                      width={Math.max(1, Math.floor(snap.image.width / 4))}
-                      height={Math.max(1, Math.floor(snap.image.height / 4))}
-                      ref={(el) => {
-                        if (!el) return
-                        const ctx = el.getContext('2d')
-                        if (!ctx) return
-                        const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
-                        const off = document.createElement('canvas')
-                        off.width = snap.image.width
-                        off.height = snap.image.height
-                        const octx = off.getContext('2d')
-                        if (!octx) return
-                        octx.putImageData(imgData, 0, 0)
-                        ctx.drawImage(off, 0, 0, el.width, el.height)
-                      }}
-                    />
-                  ))}
+                  .map((snap) => {
+                    const isSelected = compareSelection[1] === snap.id
+                    return (
+                      <button
+                        key={snap.id}
+                        onClick={() => setCompareSelection(1, snap.id)}
+                        aria-pressed={isSelected}
+                        role="option"
+                        aria-label={`Snapshot captured at ${new Date(snap.createdAt).toLocaleString()}`}
+                        style={{
+                          border: isSelected ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
+                          borderRadius: 6,
+                          padding: 2,
+                          background: isSelected ? 'rgba(77,208,225,0.1)' : 'var(--panel)',
+                          cursor: 'pointer',
+                        }}
+                        title={new Date(snap.createdAt).toLocaleString()}
+                      >
+                        <canvas
+                          width={Math.max(1, Math.floor(snap.image.width / 4))}
+                          height={Math.max(1, Math.floor(snap.image.height / 4))}
+                          style={{ display: 'block' }}
+                          ref={(el) => {
+                            if (!el) return
+                            const ctx = el.getContext('2d')
+                            if (!ctx) return
+                            const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                            const off = document.createElement('canvas')
+                            off.width = snap.image.width
+                            off.height = snap.image.height
+                            const octx = off.getContext('2d')
+                            if (!octx) return
+                            octx.putImageData(imgData, 0, 0)
+                            ctx.drawImage(off, 0, 0, el.width, el.height)
+                          }}
+                        />
+                      </button>
+                    )
+                  })}
               </div>
             ) : null}
+            {compareSelection[1]
+              ? (() => {
+                  const snap = snapshots.find((s) => s.id === compareSelection[1])
+                  if (!snap) return null
+                  return (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Comparing to selected snapshot</span>
+                      <canvas
+                        width={Math.max(1, Math.floor(snap.image.width / 6))}
+                        height={Math.max(1, Math.floor(snap.image.height / 6))}
+                        style={{ border: '1px solid var(--panel-border)', borderRadius: 4, background: '#0b1020' }}
+                        ref={(el) => {
+                          if (!el) return
+                          const ctx = el.getContext('2d')
+                          if (!ctx) return
+                          const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                          const off = document.createElement('canvas')
+                          off.width = snap.image.width
+                          off.height = snap.image.height
+                          const octx = off.getContext('2d')
+                          if (!octx) return
+                          octx.putImageData(imgData, 0, 0)
+                          ctx.drawImage(off, 0, 0, el.width, el.height)
+                        }}
+                        aria-label="Selected snapshot for comparison"
+                      />
+                    </div>
+                  )
+                })()
+              : null}
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button onClick={() => runMix(2)} disabled={safeMode.active || outputStatus[2] === 'mixing'} title="Runs FFT mix into Output 2">
-                {outputStatus[2] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 2'}
+                {outputStatus[2] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 2'}{' '}
+                <span style={{ fontSize: 11, paddingLeft: 6, color: 'var(--text-muted)' }}>
+                  {safeMode.active ? 'Safe Mode' : outputStatus[2] === 'mixing' ? 'Mixing…' : 'Ready'}
+                </span>
               </button>
             </div>
             {outputStatus[2] === 'mixing' && (
@@ -437,34 +554,104 @@ export function AppShell() {
               >
                 Snapshot
               </button>
-              <label style={{ fontSize: 12 }}>Compare (placeholder)</label>
+              <label style={{ fontSize: 12 }}>Compare target</label>
+              <button
+                onClick={() => setCompareSelection(2, null)}
+                disabled={!compareSelection[2]}
+                aria-disabled={!compareSelection[2]}
+                style={{ fontSize: 12 }}
+              >
+                Clear
+              </button>
             </div>
             {snapshots.filter((s) => s.viewport === 2).length ? (
-              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: 4, border: '1px solid var(--panel-border)', borderRadius: 6 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  overflowX: 'auto',
+                  padding: 4,
+                  border: '1px solid var(--panel-border)',
+                  borderRadius: 6,
+                  backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
+                  backgroundSize: '100% 12px',
+                }}
+                role="listbox"
+                aria-label="Snapshots for Output 2"
+              >
                 {snapshots
                   .filter((s) => s.viewport === 2)
-                  .map((snap) => (
-                    <canvas
-                      key={snap.id}
-                      width={Math.max(1, Math.floor(snap.image.width / 4))}
-                      height={Math.max(1, Math.floor(snap.image.height / 4))}
-                      ref={(el) => {
-                        if (!el) return
-                        const ctx = el.getContext('2d')
-                        if (!ctx) return
-                        const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
-                        const off = document.createElement('canvas')
-                        off.width = snap.image.width
-                        off.height = snap.image.height
-                        const octx = off.getContext('2d')
-                        if (!octx) return
-                        octx.putImageData(imgData, 0, 0)
-                        ctx.drawImage(off, 0, 0, el.width, el.height)
-                      }}
-                    />
-                  ))}
+                  .map((snap) => {
+                    const isSelected = compareSelection[2] === snap.id
+                    return (
+                      <button
+                        key={snap.id}
+                        onClick={() => setCompareSelection(2, snap.id)}
+                        aria-pressed={isSelected}
+                        role="option"
+                        aria-label={`Snapshot captured at ${new Date(snap.createdAt).toLocaleString()}`}
+                        style={{
+                          border: isSelected ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
+                          borderRadius: 6,
+                          padding: 2,
+                          background: isSelected ? 'rgba(77,208,225,0.1)' : 'var(--panel)',
+                          cursor: 'pointer',
+                        }}
+                        title={new Date(snap.createdAt).toLocaleString()}
+                      >
+                        <canvas
+                          width={Math.max(1, Math.floor(snap.image.width / 4))}
+                          height={Math.max(1, Math.floor(snap.image.height / 4))}
+                          style={{ display: 'block' }}
+                          ref={(el) => {
+                            if (!el) return
+                            const ctx = el.getContext('2d')
+                            if (!ctx) return
+                            const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                            const off = document.createElement('canvas')
+                            off.width = snap.image.width
+                            off.height = snap.image.height
+                            const octx = off.getContext('2d')
+                            if (!octx) return
+                            octx.putImageData(imgData, 0, 0)
+                            ctx.drawImage(off, 0, 0, el.width, el.height)
+                          }}
+                        />
+                      </button>
+                    )
+                  })}
               </div>
             ) : null}
+            {compareSelection[2]
+              ? (() => {
+                  const snap = snapshots.find((s) => s.id === compareSelection[2])
+                  if (!snap) return null
+                  return (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Comparing to selected snapshot</span>
+                      <canvas
+                        width={Math.max(1, Math.floor(snap.image.width / 6))}
+                        height={Math.max(1, Math.floor(snap.image.height / 6))}
+                        style={{ border: '1px solid var(--panel-border)', borderRadius: 4, background: '#0b1020' }}
+                        ref={(el) => {
+                          if (!el) return
+                          const ctx = el.getContext('2d')
+                          if (!ctx) return
+                          const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                          const off = document.createElement('canvas')
+                          off.width = snap.image.width
+                          off.height = snap.image.height
+                          const octx = off.getContext('2d')
+                          if (!octx) return
+                          octx.putImageData(imgData, 0, 0)
+                          ctx.drawImage(off, 0, 0, el.width, el.height)
+                        }}
+                        aria-label="Selected snapshot for comparison"
+                      />
+                    </div>
+                  )
+                })()
+              : null}
           </div>
         </section>
         <section style={panelStyle}>
@@ -513,7 +700,10 @@ export function AppShell() {
                 disabled={safeMode.active}
               />
               <button onClick={() => runBeamSim()} disabled={safeMode.active || beamStatus === 'running'} style={{ marginTop: 12 }}>
-                {beamStatus === 'running' ? 'Simulating…' : 'Run Beam →'}
+                {beamStatus === 'running' ? 'Simulating…' : 'Run Beam →'}{' '}
+                <span style={{ fontSize: 11, paddingLeft: 6, color: 'var(--text-muted)' }}>
+                  {safeMode.active ? 'Safe Mode' : beamStatus === 'running' ? 'Running…' : 'Ready'}
+                </span>
               </button>
             </div>
             <div style={{ flex: '1 1 300px' }}>
