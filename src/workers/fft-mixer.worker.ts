@@ -48,11 +48,16 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayloa
 }
 
 async function runMixerJob(jobId: string, payload: MixerJobPayload) {
+  validatePayload(payload)
   const adapter = getFftAdapter({ mode: payload.fftMode || 'js' })
-  const first = payload.images[0]
-  if (!first) throw new Error('No images provided')
+  const first = payload.images[0] as typeof payload.images[number]
   const width = first.width
   const height = first.height
+
+  const brightnessValue = clamp(payload.brightnessConfig.value, -255, 255)
+  const brightnessContrast = clamp(payload.brightnessConfig.contrast, 0.01, 10)
+  const mask = normalizeRegionMask(payload.regionMask, width, height)
+  const applyMask = mask.coverage < 1 || payload.regionMask.mode === 'exclude'
 
   const accumRe = new Float32Array(width * height)
   const accumIm = new Float32Array(width * height)
@@ -61,9 +66,11 @@ async function runMixerJob(jobId: string, payload: MixerJobPayload) {
     if (canceledJobs.has(jobId)) throw new Error('Canceled')
     const reIn = Float32Array.from(image.pixels)
     const { re, im } = adapter.fft2d(image.width, image.height, reIn)
+    emitProgress(jobId, 0.25)
 
-    applyRegionMask(re, im, image.width, image.height, payload.regionMask)
+    if (applyMask) applyRegionMask(re, im, image.width, image.height, mask, payload.regionMask.mode)
     applyWeights(re, im, payload.weights)
+    emitProgress(jobId, 0.55)
 
     for (let i = 0; i < accumRe.length; i += 1) {
       accumRe[i] += re[i]
@@ -76,12 +83,13 @@ async function runMixerJob(jobId: string, payload: MixerJobPayload) {
   for (let i = 0; i < outSpatial.length; i += 1) {
     let v = outSpatial[i]
     if (payload.brightnessConfig.target === 'spatial') {
-      v = (v + payload.brightnessConfig.value) * payload.brightnessConfig.contrast
+      v = (v + brightnessValue) * brightnessContrast
     }
     v = Math.max(0, Math.min(255, v))
     pixels[i] = v
   }
 
+  emitProgress(jobId, 1)
   return { width, height, pixels }
 }
 
@@ -90,21 +98,26 @@ function applyRegionMask(
   im: Float32Array,
   width: number,
   height: number,
-  mask: MixerJobPayload['regionMask'],
+  mask: ReturnType<typeof normalizeRegionMask>,
+  mode: MixerJobPayload['regionMask']['mode'],
 ) {
-  // Placeholder: simple include/exclude radius centered mask
+  if (mode === 'include' && mask.coverage >= 0.999) return
   const centerX = width / 2
   const centerY = height / 2
-  const radius = Math.min(width, height) * (mask.radius ?? 1)
 
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const dx = x - centerX
       const dy = y - centerY
-      const inside = Math.sqrt(dx * dx + dy * dy) <= radius
+      let inside = true
+      if (mask.shape === 'circle') {
+        inside = Math.sqrt(dx * dx + dy * dy) <= mask.radiusPx
+      } else if (mask.shape === 'rect') {
+        inside = Math.abs(dx) <= mask.widthPx / 2 && Math.abs(dy) <= mask.heightPx / 2
+      }
       const idx = y * width + x
-      const apply = mask.mode === 'include' ? inside : !inside
-      if (!apply) {
+      const keep = mode === 'include' ? inside : !inside
+      if (!keep) {
         re[idx] = 0
         im[idx] = 0
       }
@@ -125,3 +138,42 @@ function applyWeights(re: Float32Array, im: Float32Array, weights: MixerJobPaylo
     }
   }
 }
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function normalizeRegionMask(mask: MixerJobPayload['regionMask'], width: number, height: number) {
+  const radiusPx = (mask.radius ?? 1) * Math.min(width, height)
+  const widthPx = (mask.width ?? 1) * width
+  const heightPx = (mask.height ?? 1) * height
+  const coverage = mask.shape === 'circle'
+    ? Math.min(1, (Math.PI * radiusPx * radiusPx) / (width * height))
+    : Math.min(1, (widthPx * heightPx) / (width * height))
+  return { shape: mask.shape, radiusPx, widthPx, heightPx, coverage }
+}
+
+function emitProgress(jobId: string, progress: number) {
+  if (typeof self === 'undefined') return
+  const envelope: WorkerMessageEnvelope = {
+    type: 'JOB_PROGRESS',
+    jobId,
+    progress,
+  }
+  self.postMessage(envelope)
+}
+
+function validatePayload(payload: MixerJobPayload) {
+  if (!payload.images.length) throw new Error('No images provided')
+  const { width, height } = payload.images[0]!
+  for (const img of payload.images) {
+    if (img.width !== width || img.height !== height) {
+      throw new Error('Image dimensions must match')
+    }
+  }
+  if (!Number.isFinite(payload.brightnessConfig.contrast) || payload.brightnessConfig.contrast <= 0) {
+    throw new Error('Invalid contrast')
+  }
+}
+
+export { runMixerJob }
