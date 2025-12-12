@@ -8,6 +8,7 @@ declare const self: DedicatedWorkerGlobalScope
 
 let canceledJobs = new Set<string>()
 
+if (typeof self !== 'undefined') {
 self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayload>>) => {
   const { data } = event
   if (!data) return
@@ -46,10 +47,21 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayloa
     canceledJobs.delete(jobId)
   }
 }
+}
 
 async function runMixerJob(jobId: string, payload: MixerJobPayload) {
   validatePayload(payload)
-  const adapter = getFftAdapter({ mode: payload.fftMode || 'js' })
+  let modeUsed: MixerJobPayload['fftMode'] = payload.fftMode || 'js'
+  let adapter = await getFftAdapter({ mode: modeUsed })
+  if (modeUsed === 'wasm') {
+    try {
+      adapter = await getFftAdapter({ mode: 'wasm' })
+      modeUsed = 'wasm'
+    } catch (err) {
+      modeUsed = 'js'
+      adapter = await getFftAdapter({ mode: 'js' })
+    }
+  }
   const first = payload.images[0] as typeof payload.images[number]
   const width = first.width
   const height = first.height
@@ -90,7 +102,8 @@ async function runMixerJob(jobId: string, payload: MixerJobPayload) {
   }
 
   emitProgress(jobId, 1)
-  return { width, height, pixels }
+  adapter.dispose?.()
+  return { width, height, pixels, modeUsed }
 }
 
 function applyRegionMask(
