@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { SNAPSHOT_CAP, TELEMETRY_SAMPLE } from '@/config/constants'
+import { fftMode as defaultFftMode } from '@/config/runtime'
 import type {
   ArrayEntity,
   FileMeta,
@@ -31,6 +32,7 @@ export interface GlobalState {
   outputStatus: Record<OutputViewportId, 'idle' | 'mixing' | 'error'>
   mixerProgress: Record<OutputViewportId, number | null>
   compareSelection: Record<OutputViewportId, string | null>
+  fftMode: 'js' | 'wasm'
   mixerWeights: number[]
   presets: MixerPreset[]
   scenarios: SimulationState[]
@@ -77,6 +79,7 @@ export interface GlobalState {
   pushToast: (toast: Toast) => void
   removeToast: (id: string) => void
   setCompareSelection: (target: OutputViewportId, snapshotId: string | null) => void
+  setFftMode: (mode: 'js' | 'wasm') => void
   setBeamConfig: (
     config: Partial<{
       arrays: ArrayEntity[]
@@ -107,6 +110,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   presets: [],
   scenarios: [],
   snapshots: [],
+  fftMode: defaultFftMode,
   beamConfig: {
     arrays: [],
     steering: { theta: 0, phi: 0 },
@@ -162,4 +166,5 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   removeToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
   setCompareSelection: (target, snapshotId) =>
     set({ compareSelection: { ...get().compareSelection, [target]: snapshotId } }),
+  setFftMode: (mode) => set({ fftMode: mode }),
 }))
