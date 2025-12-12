@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { SafeModeBanner } from '@/components/SafeModeBanner'
 import { ToastStack } from '@/components/ToastStack'
 import { UploadPanel } from '@/components/UploadPanel'
+import { MixerControls } from '@/components/MixerControls'
+import { RegionControls } from '@/components/RegionControls'
 import { useWorkerSupport } from '@/hooks/useWorkerSupport'
 import { useGlobalStore } from '@/state/globalStore'
-import { imageWorkerPool } from '@/workers/pool'
-import type { FileMeta, FileSlot } from '@/types'
+import { fftWorkerPool, imageWorkerPool } from '@/workers/pool'
+import type { FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
 
 const shellStyle: CSSProperties = {
   minHeight: '100vh',
@@ -49,6 +51,13 @@ export function AppShell() {
   const setImageData = useGlobalStore((s) => s.setImageData)
   const setNormalizedSize = useGlobalStore((s) => s.setNormalizedSize)
   const pushToast = useGlobalStore((s) => s.pushToast)
+  const images = useGlobalStore((s) => s.images)
+  const mixerConfig = useGlobalStore((s) => s.mixerConfig)
+  const regionMask = useGlobalStore((s) => s.regionMask)
+  const brightnessConfig = useGlobalStore((s) => s.brightnessConfig)
+  const setOutputImage = useGlobalStore((s) => s.setOutputImage)
+  const setOutputStatus = useGlobalStore((s) => s.setOutputStatus)
+  const outputStatus = useGlobalStore((s) => s.outputStatus)
   const [loadingSlots, setLoadingSlots] = useState<Record<FileSlot, boolean>>({
     A: false,
     B: false,
@@ -150,6 +159,53 @@ export function AppShell() {
     if (!supported) setSafeMode({ active: true })
   }, [supported, setSafeMode])
 
+  const runMix = useCallback(
+    async (target: OutputViewportId) => {
+      if (safeMode.active) return
+      const loadedImages = Object.entries(images)
+        .map(([id, data]) =>
+          data ? { id: id as FileSlot, width: data.width, height: data.height, pixels: data.pixels } : null,
+        )
+        .filter((v): v is NonNullable<typeof v> => Boolean(v))
+      if (!loadedImages.length) {
+        pushToast({ id: crypto.randomUUID(), type: 'warning', message: 'No images loaded' })
+        return
+      }
+      setOutputStatus(target, 'mixing')
+      const jobId = `fft-${target}-${crypto.randomUUID()}`
+      const payload: MixerJobPayload = {
+        images: loadedImages,
+        weights: mixerConfig,
+        regionMask,
+        brightnessConfig,
+        targetViewport: target,
+        fftMode: 'js',
+      }
+      try {
+        const result = (await fftWorkerPool.enqueue({ id: jobId, payload })) as {
+          width: number
+          height: number
+          pixels: Uint8ClampedArray
+        }
+        setOutputImage(target, result)
+        pushToast({
+          id: crypto.randomUUID(),
+          type: 'success',
+          message: `Mix completed for output ${target}`,
+        })
+        setOutputStatus(target, 'idle')
+      } catch (err) {
+        setOutputStatus(target, 'error')
+        pushToast({
+          id: crypto.randomUUID(),
+          type: 'error',
+          message: err instanceof Error ? err.message : 'Mix failed',
+        })
+      }
+    },
+    [brightnessConfig, images, mixerConfig, pushToast, regionMask, safeMode.active, setOutputImage, setOutputStatus],
+  )
+
   return (
     <div style={shellStyle}>
       <SafeModeBanner
@@ -166,7 +222,11 @@ export function AppShell() {
         <section style={panelStyle}>
           <h2>Fourier Mixer</h2>
           <UploadPanel onFilesAccepted={handleFilesAccepted} />
-          <p style={{ color: 'var(--text-muted)' }}>Placeholder workspace region for Part A.</p>
+          <MixerControls />
+          <RegionControls />
+          <button onClick={() => runMix(1)} disabled={safeMode.active}>
+            {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}
+          </button>
           <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
             Loading: {Object.entries(loadingSlots).filter(([, v]) => v).map(([k]) => k).join(', ') || 'idle'}
           </p>
