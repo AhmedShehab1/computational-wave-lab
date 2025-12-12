@@ -16,17 +16,6 @@ const normalizeSteering = (theta: number, phi: number) => {
   return { theta: t, phi: p }
 }
 
-const calcInterference = (x: number, y: number, steering: { theta: number; phi: number }) => {
-  const phase = Math.sin((x + y) * Math.PI + steering.theta * 0.1 + steering.phi * 0.05)
-  const envelope = Math.exp(-(x * x + y * y) * 2)
-  return envelope * (0.5 + 0.5 * phase)
-}
-
-const calcBeamSlice = (y: number, steering: { theta: number; phi: number }) => {
-  const phase = Math.cos(y * Math.PI * 0.5 + steering.theta * 0.08 - steering.phi * 0.04)
-  return 0.5 + 0.5 * phase
-}
-
 const renderGeometry = (arrays: BeamJobPayload['arrays'], resolution: number) => {
   const width = resolution
   const height = resolution
@@ -53,7 +42,48 @@ const renderGeometry = (arrays: BeamJobPayload['arrays'], resolution: number) =>
   return { heatmap, width, height }
 }
 
-const buildResult = (payload: BeamJobPayload): BeamResult => {
+const calcDelayAndSum = (
+  arrays: BeamJobPayload['arrays'],
+  thetaRad: number,
+  widebandMode: BeamJobPayload['widebandMode'],
+) => {
+  const c = 3e8
+  const elementCount = Math.max(1, arrays.length)
+  const carriers = arrays.flatMap((a) => a.config?.frequencies || [])
+  const carrierList = carriers.length ? carriers : [1e9]
+
+  if (widebandMode === 'per-carrier') {
+    let power = 0
+    carrierList.forEach((freq) => {
+      const k = (2 * Math.PI * freq) / c
+      let re = 0
+      let im = 0
+      arrays.forEach((entity) => {
+        const pos = entity.position ?? { x: 0, y: 0, z: 0 }
+        const phase = k * (pos.x * Math.cos(thetaRad) + pos.y * Math.sin(thetaRad))
+        re += Math.cos(phase)
+        im += Math.sin(phase)
+      })
+      power += (re * re + im * im) / (elementCount * elementCount)
+    })
+    return power / carrierList.length
+  }
+
+  let re = 0
+  let im = 0
+  carrierList.forEach((freq) => {
+    const k = (2 * Math.PI * freq) / c
+    arrays.forEach((entity) => {
+      const pos = entity.position ?? { x: 0, y: 0, z: 0 }
+      const phase = k * (pos.x * Math.cos(thetaRad) + pos.y * Math.sin(thetaRad))
+      re += Math.cos(phase)
+      im += Math.sin(phase)
+    })
+  })
+  return (re * re + im * im) / (elementCount * elementCount)
+}
+
+const buildResult = (payload: BeamJobPayload, shouldCancel: () => boolean = () => false): BeamResult => {
   const bounds = payload.bounds ?? DEFAULT_BOUNDS
   const width = payload.resolution
   const height = payload.resolution
@@ -63,9 +93,6 @@ const buildResult = (payload: BeamJobPayload): BeamResult => {
     Math.sin((phi * Math.PI) / 180) * Math.cos((theta * Math.PI) / 180),
     Math.sin((theta * Math.PI) / 180),
   )
-  const carrier = payload.arrays[0]?.config?.frequencies?.[0] ?? 1e9
-  const wavelength = 3e8 / carrier
-  const k = (2 * Math.PI) / Math.max(wavelength, 1)
 
   if (payload.renderMode === 'array-geometry') {
     const geometry = renderGeometry(payload.arrays, payload.resolution)
@@ -76,29 +103,34 @@ const buildResult = (payload: BeamJobPayload): BeamResult => {
   const { xMin, xMax, yMin, yMax } = bounds
   const dx = (xMax - xMin) / (width - 1 || 1)
   const dy = (yMax - yMin) / (height - 1 || 1)
+  let maxPower = 1e-6
 
   for (let j = 0; j < height; j++) {
+    if (shouldCancel()) break
     const y = yMin + j * dy
     for (let i = 0; i < width; i++) {
       const x = xMin + i * dx
+      const thetaRad = ((i / Math.max(1, width - 1)) - 0.5) * Math.PI
       const dir = normalizeVec(x, y, 1)
-      let value = calcInterference(x, y, { theta, phi })
+      let value = 0
       if (payload.arrays.length) {
-        let re = 0
-        let im = 0
-        for (const entity of payload.arrays) {
-          const pos = entity.position ?? { x: 0, y: 0, z: 0 }
-          const dot = pos.x * (dir.x - steeringVec.x) + pos.y * (dir.y - steeringVec.y) + (pos.z ?? 0) * (dir.z - steeringVec.z)
-          const phase = k * dot
-          re += Math.cos(phase)
-          im += Math.sin(phase)
-        }
-        const norm = payload.arrays.length || 1
-        value = (re * re + im * im) / (norm * norm)
+        value = calcDelayAndSum(payload.arrays, thetaRad, payload.widebandMode)
       } else if (payload.renderMode === 'beam-slice') {
-        value = calcBeamSlice(y, { theta, phi })
+        const phase = Math.cos(y * Math.PI * 0.5 + steeringVec.y * 0.5)
+        value = 0.5 + 0.5 * phase
+      } else {
+        const phase = Math.sin((dir.x + dir.y) * Math.PI + steeringVec.x * 0.1 + steeringVec.y * 0.05)
+        const envelope = Math.exp(-(x * x + y * y) * 2)
+        value = envelope * (0.5 + 0.5 * phase)
       }
-      heatmap[j * width + i] = clamp(value, 0, 1)
+      maxPower = Math.max(maxPower, value)
+      heatmap[j * width + i] = value
+    }
+  }
+
+  if (maxPower > 0) {
+    for (let idx = 0; idx < heatmap.length; idx += 1) {
+      heatmap[idx] = clamp(heatmap[idx] / maxPower, 0, 1)
     }
   }
 
@@ -126,7 +158,7 @@ ctx.onmessage = (event: MessageEvent<WorkerMessageEnvelope<BeamJobPayload>>) => 
 
   const { jobId, payload } = data
   try {
-    const result = buildResult(payload)
+    const result = buildResult(payload, () => canceledJobs.has(jobId))
     if (canceledJobs.has(jobId)) {
       canceledJobs.delete(jobId)
       return

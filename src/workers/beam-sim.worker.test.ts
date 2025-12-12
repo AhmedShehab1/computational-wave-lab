@@ -27,4 +27,22 @@ describe('beam-sim worker', () => {
     expect(geometryResult.geometry).toBeDefined()
     expect(geometryResult.heatmap?.length).toBe(basePayload.resolution * basePayload.resolution)
   })
+
+  it('normalizes delay-and-sum power to [0,1]', () => {
+    const result = buildResult(basePayload)
+    const max = Math.max(...Array.from(result.heatmap ?? []))
+    expect(max).toBeGreaterThan(0)
+    expect(max).toBeLessThanOrEqual(1)
+  })
+
+  it('supports cancellation hook', () => {
+    let called = false
+    const result = buildResult(basePayload, () => {
+      called = true
+      return true
+    })
+    expect(called).toBe(true)
+    const sum = (result.heatmap ?? []).reduce((acc, v) => acc + v, 0)
+    expect(sum).toBeLessThanOrEqual(basePayload.resolution * basePayload.resolution)
+  })
 })
