@@ -61,10 +61,24 @@ export interface ArrayEntity {
   phaseTaper?: number
 }
 
+export type FileSlot = 'A' | 'B' | 'C' | 'D'
+
 export interface FileMeta {
-  id: string
+  id: FileSlot
   name: string
   size: number
-  mimeType?: string
-  createdAt?: number
+  type: string
+  lastModified?: number
+}
+
+export interface Toast {
+  id: string
+  type: 'info' | 'error' | 'success' | 'warning'
+  message: string
+  duration?: number
+}
+
+export interface SafeModeState {
+  active: boolean
+  reason?: string
 }
