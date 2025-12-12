@@ -18,18 +18,19 @@ export const BrightnessContrastPad: React.FC<BrightnessContrastPadProps> = ({
   onTargetChange
 }) => {
   const padRef = useRef<HTMLDivElement>(null);
+  const radialRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showRadialOverlay, setShowRadialOverlay] = useState(false);
 
   // Brightness: -1 to 1 maps to x 0 to 100%
   // Contrast: -1 to 1 maps to y 100% to 0%
   const normalizedX = ((brightness + 1) / 2) * 100;
   const normalizedY = ((1 - contrast) / 2) * 100;
 
-  const handleInteraction = useCallback((clientX: number, clientY: number) => {
-    const pad = padRef.current;
-    if (!pad) return;
+  const handleInteraction = useCallback((clientX: number, clientY: number, element: HTMLDivElement | null) => {
+    if (!element) return;
 
-    const rect = pad.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
 
@@ -41,27 +42,62 @@ export const BrightnessContrastPad: React.FC<BrightnessContrastPadProps> = ({
     onContrastChange(Number(newContrast.toFixed(2)));
   }, [onBrightnessChange, onContrastChange]);
 
+  const handlePadInteraction = useCallback((clientX: number, clientY: number) => {
+    handleInteraction(clientX, clientY, padRef.current);
+  }, [handleInteraction]);
+
+  const handleRadialInteraction = useCallback((clientX: number, clientY: number) => {
+    handleInteraction(clientX, clientY, radialRef.current);
+  }, [handleInteraction]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
-    handleInteraction(e.clientX, e.clientY);
+    handlePadInteraction(e.clientX, e.clientY);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     setIsDragging(true);
     const touch = e.touches[0];
-    handleInteraction(touch.clientX, touch.clientY);
+    handlePadInteraction(touch.clientX, touch.clientY);
   };
+
+  // Global keyboard shortcut for B key
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'b' || e.key === 'B') {
+        // Don't trigger if user is typing in an input
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+          return;
+        }
+        setShowRadialOverlay(prev => !prev);
+      }
+      if (e.key === 'Escape' && showRadialOverlay) {
+        setShowRadialOverlay(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyPress);
+    return () => document.removeEventListener('keydown', handleKeyPress);
+  }, [showRadialOverlay]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      handleInteraction(e.clientX, e.clientY);
+      if (showRadialOverlay) {
+        handleRadialInteraction(e.clientX, e.clientY);
+      } else {
+        handlePadInteraction(e.clientX, e.clientY);
+      }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       if (!isDragging) return;
       const touch = e.touches[0];
-      handleInteraction(touch.clientX, touch.clientY);
+      if (showRadialOverlay) {
+        handleRadialInteraction(touch.clientX, touch.clientY);
+      } else {
+        handlePadInteraction(touch.clientX, touch.clientY);
+      }
     };
 
     const handleEnd = () => setIsDragging(false);
@@ -79,7 +115,7 @@ export const BrightnessContrastPad: React.FC<BrightnessContrastPadProps> = ({
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleEnd);
     };
-  }, [isDragging, handleInteraction]);
+  }, [isDragging, showRadialOverlay, handlePadInteraction, handleRadialInteraction]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     const step = e.shiftKey ? 0.1 : 0.02;
@@ -108,101 +144,149 @@ export const BrightnessContrastPad: React.FC<BrightnessContrastPadProps> = ({
     }
   };
 
+  const handleRadialMouseDown = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    handleRadialInteraction(e.clientX, e.clientY);
+  };
+
   return (
-    <div className="brightness-pad-container">
-      <div className="brightness-pad-header">
-        <h3>
-          <span className="icon">☀️</span>
-          Brightness & Contrast
-        </h3>
-        <span className="shortcut-hint">Arrow keys</span>
-      </div>
+    <>
+      <div className="brightness-pad-container">
+        <div className="brightness-pad-header">
+          <h3>
+            <span className="icon">☀️</span>
+            Brightness & Contrast
+          </h3>
+          <button
+            className="shortcut-hint"
+            onClick={() => setShowRadialOverlay(true)}
+            title="Press B to toggle radial overlay"
+          >
+            B
+          </button>
+        </div>
 
-      <div
-        ref={padRef}
-        className="brightness-pad"
-        onMouseDown={handleMouseDown}
-        onTouchStart={handleTouchStart}
-        tabIndex={0}
-        onKeyDown={handleKeyDown}
-        role="slider"
-        aria-label="Brightness and Contrast control pad"
-        aria-valuetext={`Brightness: ${brightness.toFixed(2)}, Contrast: ${contrast.toFixed(2)}`}
-      >
-        <span className="axis-label top">+C</span>
-        <span className="axis-label bottom">-C</span>
-        <span className="axis-label left">-B</span>
-        <span className="axis-label right">+B</span>
-        
         <div
-          className="crosshair"
-          style={{
-            left: `${normalizedX}%`,
-            top: `${normalizedY}%`
-          }}
-        />
-      </div>
+          ref={padRef}
+          className="brightness-pad"
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
+          role="slider"
+          aria-label="Brightness and Contrast control pad"
+          aria-valuetext={`Brightness: ${brightness.toFixed(2)}, Contrast: ${contrast.toFixed(2)}`}
+        >
+          <span className="axis-label top">+C</span>
+          <span className="axis-label bottom">-C</span>
+          <span className="axis-label left">-B</span>
+          <span className="axis-label right">+B</span>
+          
+          <div
+            className="crosshair"
+            style={{
+              left: `${normalizedX}%`,
+              top: `${normalizedY}%`
+            }}
+          />
+        </div>
 
-      <div className="brightness-values">
-        <div className="value-box">
-          <label htmlFor="brightness-input">Brightness</label>
+        <div className="brightness-values">
+          <div className="value-box">
+            <label htmlFor="brightness-input">Brightness</label>
+            <input
+              id="brightness-input"
+              type="number"
+              value={brightness.toFixed(2)}
+              onChange={(e) => onBrightnessChange(Number(e.target.value))}
+              min="-1"
+              max="1"
+              step="0.01"
+            />
+          </div>
+          <div className="value-box">
+            <label htmlFor="contrast-input">Contrast</label>
+            <input
+              id="contrast-input"
+              type="number"
+              value={contrast.toFixed(2)}
+              onChange={(e) => onContrastChange(Number(e.target.value))}
+              min="-1"
+              max="1"
+              step="0.01"
+            />
+          </div>
+        </div>
+
+        <div className="target-toggle">
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Apply to:</span>
+          <div className="toggle-pill">
+            <button
+              className={target === 'source' ? 'active' : ''}
+              onClick={() => onTargetChange('source')}
+            >
+              Source
+            </button>
+            <button
+              className={target === 'output' ? 'active' : ''}
+              onClick={() => onTargetChange('output')}
+            >
+              Output
+            </button>
+          </div>
+        </div>
+
+        <div className="contrast-slider">
+          <label>
+            <span>Fine Contrast</span>
+            <span>{contrast.toFixed(2)}</span>
+          </label>
           <input
-            id="brightness-input"
-            type="number"
-            value={brightness.toFixed(2)}
-            onChange={(e) => onBrightnessChange(Number(e.target.value))}
+            type="range"
             min="-1"
             max="1"
             step="0.01"
-          />
-        </div>
-        <div className="value-box">
-          <label htmlFor="contrast-input">Contrast</label>
-          <input
-            id="contrast-input"
-            type="number"
-            value={contrast.toFixed(2)}
+            value={contrast}
             onChange={(e) => onContrastChange(Number(e.target.value))}
-            min="-1"
-            max="1"
-            step="0.01"
           />
         </div>
       </div>
 
-      <div className="target-toggle">
-        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Apply to:</span>
-        <div className="toggle-pill">
-          <button
-            className={target === 'source' ? 'active' : ''}
-            onClick={() => onTargetChange('source')}
+      {/* Radial Overlay (activated via B key) */}
+      {showRadialOverlay && (
+        <>
+          <div 
+            className="radial-overlay-backdrop" 
+            onClick={() => setShowRadialOverlay(false)}
+            aria-hidden="true"
+          />
+          <div
+            ref={radialRef}
+            className="radial-overlay"
+            onMouseDown={handleRadialMouseDown}
+            role="slider"
+            aria-label="Radial brightness and contrast control"
+            aria-valuetext={`Brightness: ${brightness.toFixed(2)}, Contrast: ${contrast.toFixed(2)}`}
           >
-            Source
-          </button>
-          <button
-            className={target === 'output' ? 'active' : ''}
-            onClick={() => onTargetChange('output')}
-          >
-            Output
-          </button>
-        </div>
-      </div>
-
-      <div className="contrast-slider">
-        <label>
-          <span>Fine Contrast</span>
-          <span>{contrast.toFixed(2)}</span>
-        </label>
-        <input
-          type="range"
-          min="-1"
-          max="1"
-          step="0.01"
-          value={contrast}
-          onChange={(e) => onContrastChange(Number(e.target.value))}
-        />
-      </div>
-    </div>
+            <span className="axis-label brightness">Brightness →</span>
+            <span className="axis-label contrast">↑ Contrast</span>
+            
+            <div
+              className="crosshair"
+              style={{
+                left: `${normalizedX}%`,
+                top: `${normalizedY}%`
+              }}
+            />
+            
+            <div className="radial-values">
+              <span>B: {brightness.toFixed(2)}</span>
+              <span>C: {contrast.toFixed(2)}</span>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 };
 
