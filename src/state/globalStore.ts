@@ -4,6 +4,8 @@ import type {
   ArrayEntity,
   FileMeta,
   FileSlot,
+  ImageDataPayload,
+  ImageSlotId,
   MixerPreset,
   SafeModeState,
   SimulationState,
@@ -12,7 +14,9 @@ import type {
 
 export interface GlobalState {
   files: FileMeta[]
+  images: Record<ImageSlotId, ImageDataPayload | null>
   workspaceDimensions: { width: number; height: number }
+  normalizedSize?: { width: number; height: number }
   mixerWeights: number[]
   presets: MixerPreset[]
   scenarios: SimulationState[]
@@ -27,6 +31,8 @@ export interface GlobalState {
   setMixerWeights: (weights: number[]) => void
   setFiles: (files: FileMeta[]) => void
   setFileMeta: (slot: FileSlot, meta: FileMeta) => void
+  setImageData: (slot: ImageSlotId, data: ImageDataPayload | null) => void
+  clearImages: () => void
   setWorkspaceDimensions: (dims: { width: number; height: number }) => void
   setNormalizedSize: (dims: { width: number; height: number }) => void
   setScenarios: (scenarios: SimulationState[]) => void
@@ -37,7 +43,9 @@ export interface GlobalState {
 
 export const useGlobalStore = create<GlobalState>((set, get) => ({
   files: [],
+  images: { A: null, B: null, C: null, D: null },
   workspaceDimensions: { width: 0, height: 0 },
+  normalizedSize: undefined,
   mixerWeights: [],
   presets: [],
   scenarios: [],
@@ -58,8 +66,12 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
     const next = get().files.filter((f) => f.id !== slot)
     set({ files: [...next, meta] })
   },
+  setImageData: (slot, data) => {
+    set({ images: { ...get().images, [slot]: data } })
+  },
+  clearImages: () => set({ images: { A: null, B: null, C: null, D: null } }),
   setWorkspaceDimensions: (dims) => set({ workspaceDimensions: dims }),
-  setNormalizedSize: (dims) => set({ workspaceDimensions: dims }),
+  setNormalizedSize: (dims) => set({ normalizedSize: dims }),
   setScenarios: (scenarios) => set({ scenarios }),
   setEntities: () => {
     // placeholder for array entity mutations

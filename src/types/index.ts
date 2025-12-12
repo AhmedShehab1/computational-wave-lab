@@ -62,6 +62,7 @@ export interface ArrayEntity {
 }
 
 export type FileSlot = 'A' | 'B' | 'C' | 'D'
+export type ImageSlotId = FileSlot
 
 export interface FileMeta {
   id: FileSlot
@@ -81,4 +82,10 @@ export interface Toast {
 export interface SafeModeState {
   active: boolean
   reason?: string
+}
+
+export interface ImageDataPayload {
+  width: number
+  height: number
+  pixels: Uint8ClampedArray
 }

@@ -14,3 +14,12 @@ export interface WorkerMessageEnvelope<TPayload = unknown> {
   error?: string
   progress?: number
 }
+
+export interface ImageJobPayload {
+  fileArrayBuffer?: ArrayBuffer
+  fileType?: string
+  targetSize?: { width: number; height: number }
+  width?: number
+  height?: number
+  pixels?: Uint8ClampedArray
+}
