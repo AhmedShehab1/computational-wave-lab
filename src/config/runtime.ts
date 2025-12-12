@@ -11,3 +11,5 @@ export const widebandAggregation: WidebandAggregation = {
   method: 'coherent-sum',
   phaseAlignment: true,
 }
+
+export const fftMode: 'js' | 'wasm' = 'js'
