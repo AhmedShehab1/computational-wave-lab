@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createJsFftAdapter } from './fftAdapter'
+import { createJsFftAdapter, getFftAdapter } from './fftAdapter'
 
 const approxEqual = (a: Float32Array, b: Float32Array, eps = 1e-3) => {
   expect(a.length).toBe(b.length)
@@ -28,4 +28,17 @@ describe('fftAdapter (js)', () => {
     const out = fft.ifft2d(width, height, re, im)
     approxEqual(out, signal)
   })
+
+  if (process.env.FFT_WASM_TEST) {
+    it('optionally uses wasm adapter when available', async () => {
+      const fft = await getFftAdapter({ mode: 'wasm' })
+      const width = 4
+      const height = 1
+      const signal = new Float32Array([1, 2, 3, 4])
+      const { re, im } = fft.fft2d(width, height, signal)
+      const out = fft.ifft2d(width, height, re, im)
+      approxEqual(out, signal)
+      fft.dispose?.()
+    })
+  }
 })
