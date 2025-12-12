@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { SafeModeBanner } from '@/components/SafeModeBanner'
 import { ToastStack } from '@/components/ToastStack'
 import { UploadPanel } from '@/components/UploadPanel'
 import { MixerControls } from '@/components/MixerControls'
 import { RegionControls } from '@/components/RegionControls'
+import { AdaptiveCanvas } from '@/components/AdaptiveCanvas'
+import { SteeringJoystick } from '@/components/SteeringJoystick'
 import { useWorkerSupport } from '@/hooks/useWorkerSupport'
 import { useGlobalStore } from '@/state/globalStore'
-import { fftWorkerPool, imageWorkerPool } from '@/workers/pool'
-import type { FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
+import { beamWorkerPool, fftWorkerPool, imageWorkerPool } from '@/workers/pool'
+import { mapHeatmapToImageData } from '@/utils/colormap'
+import type { BeamJobPayload, FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
 
 const shellStyle: CSSProperties = {
   minHeight: '100vh',
@@ -58,12 +61,26 @@ export function AppShell() {
   const setOutputImage = useGlobalStore((s) => s.setOutputImage)
   const setOutputStatus = useGlobalStore((s) => s.setOutputStatus)
   const outputStatus = useGlobalStore((s) => s.outputStatus)
+  const mixerProgress = useGlobalStore((s) => s.mixerProgress)
+  const setMixerProgress = useGlobalStore((s) => s.setMixerProgress)
+  const beamConfig = useGlobalStore((s) => s.beamConfig)
+  const setBeamConfig = useGlobalStore((s) => s.setBeamConfig)
+  const beamResult = useGlobalStore((s) => s.beamResult)
+  const setBeamResult = useGlobalStore((s) => s.setBeamResult)
+  const beamStatus = useGlobalStore((s) => s.beamStatus)
+  const setBeamStatus = useGlobalStore((s) => s.setBeamStatus)
+  const beamConfigRef = useRef(beamConfig)
+  const beamDebounce = useRef<number | null>(null)
   const [loadingSlots, setLoadingSlots] = useState<Record<FileSlot, boolean>>({
     A: false,
     B: false,
     C: false,
     D: false,
   })
+
+  useEffect(() => {
+    beamConfigRef.current = beamConfig
+  }, [beamConfig])
 
   const handleFilesAccepted = useCallback(
     async (files: File[]) => {
@@ -172,6 +189,7 @@ export function AppShell() {
         return
       }
       setOutputStatus(target, 'mixing')
+      setMixerProgress(target, 0)
       const jobId = `fft-${target}-${crypto.randomUUID()}`
       const payload: MixerJobPayload = {
         images: loadedImages,
@@ -182,7 +200,11 @@ export function AppShell() {
         fftMode: 'js',
       }
       try {
-        const result = (await fftWorkerPool.enqueue({ id: jobId, payload })) as {
+        const result = (await fftWorkerPool.enqueue({
+          id: jobId,
+          payload,
+          onProgress: (p) => setMixerProgress(target, Math.min(1, Math.max(0, p))),
+        })) as {
           width: number
           height: number
           pixels: Uint8ClampedArray
@@ -191,11 +213,13 @@ export function AppShell() {
         pushToast({
           id: crypto.randomUUID(),
           type: 'success',
-          message: `Mix completed for output ${target}`,
+          message: `Output ${target} updated`,
         })
         setOutputStatus(target, 'idle')
+        setMixerProgress(target, null)
       } catch (err) {
         setOutputStatus(target, 'error')
+        setMixerProgress(target, null)
         pushToast({
           id: crypto.randomUUID(),
           type: 'error',
@@ -203,8 +227,56 @@ export function AppShell() {
         })
       }
     },
-    [brightnessConfig, images, mixerConfig, pushToast, regionMask, safeMode.active, setOutputImage, setOutputStatus],
+    [brightnessConfig, images, mixerConfig, pushToast, regionMask, safeMode.active, setMixerProgress, setOutputImage, setOutputStatus],
   )
+
+  const runBeamSim = useCallback(async (config?: typeof beamConfig) => {
+    if (safeMode.active) return
+    const effective = config ?? beamConfigRef.current
+    setBeamStatus('running')
+    const jobId = `beam-${crypto.randomUUID()}`
+    const payload: BeamJobPayload = {
+      arrays: effective.arrays,
+      steering: effective.steering,
+      renderMode: effective.renderMode,
+      widebandMode: effective.widebandMode,
+      resolution: effective.resolution,
+      bounds: effective.bounds,
+    }
+    try {
+      const result = (await beamWorkerPool.enqueue({ id: jobId, payload })) as {
+        heatmap?: Float32Array
+        width: number
+        height: number
+      }
+      setBeamResult(result)
+      pushToast({ id: crypto.randomUUID(), type: 'success', message: 'Beam simulation complete' })
+      setBeamStatus('idle')
+    } catch (err) {
+      setBeamStatus('error')
+      pushToast({
+        id: crypto.randomUUID(),
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Beam simulation failed',
+      })
+    }
+  }, [beamConfigRef, pushToast, safeMode.active, setBeamResult, setBeamStatus])
+
+  const scheduleBeamSim = useCallback(
+    (nextConfig?: typeof beamConfig) => {
+      if (nextConfig) {
+        beamConfigRef.current = nextConfig
+        setBeamConfig(nextConfig)
+      }
+      if (beamDebounce.current) window.clearTimeout(beamDebounce.current)
+      beamDebounce.current = window.setTimeout(() => runBeamSim(), 200)
+    },
+    [runBeamSim, setBeamConfig],
+  )
+
+  useEffect(() => () => {
+    if (beamDebounce.current) window.clearTimeout(beamDebounce.current)
+  }, [])
 
   return (
     <div style={shellStyle}>
@@ -227,13 +299,92 @@ export function AppShell() {
           <button onClick={() => runMix(1)} disabled={safeMode.active}>
             {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}
           </button>
+          {outputStatus[1] === 'mixing' && (
+            <div style={{ marginTop: 8, height: 6, background: 'var(--panel-border)', borderRadius: 6 }}>
+              <div
+                style={{
+                  width: `${Math.round((mixerProgress[1] ?? 0) * 100)}%`,
+                  height: '100%',
+                  background: 'var(--accent)',
+                  borderRadius: 6,
+                  transition: 'width 120ms ease-out',
+                }}
+              />
+            </div>
+          )}
           <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
             Loading: {Object.entries(loadingSlots).filter(([, v]) => v).map(([k]) => k).join(', ') || 'idle'}
           </p>
         </section>
         <section style={panelStyle}>
           <h2>Beamforming Simulator</h2>
-          <p>Placeholder workspace region for Part B.</p>
+          <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 240 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>Render Mode</label>
+              <select
+                value={beamConfig.renderMode}
+                onChange={(e) => {
+                  const renderMode = e.target.value as BeamJobPayload['renderMode']
+                  scheduleBeamSim({ ...beamConfigRef.current, renderMode })
+                }}
+                disabled={safeMode.active}
+              >
+                <option value="interference">Interference</option>
+                <option value="beam-slice">Beam Slice</option>
+                <option value="array-geometry">Array Geometry</option>
+              </select>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                Wideband Mode
+              </label>
+              <select
+                value={beamConfig.widebandMode}
+                onChange={(e) => {
+                  const widebandMode = e.target.value as BeamJobPayload['widebandMode']
+                  scheduleBeamSim({ ...beamConfigRef.current, widebandMode })
+                }}
+                disabled={safeMode.active}
+              >
+                <option value="aggregated">Aggregated</option>
+                <option value="per-carrier">Per-carrier</option>
+              </select>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+                Resolution
+              </label>
+              <input
+                type="number"
+                min={64}
+                max={512}
+                value={beamConfig.resolution}
+                onChange={(e) => {
+                  const resolution = Number(e.target.value)
+                  scheduleBeamSim({ ...beamConfigRef.current, resolution })
+                }}
+                disabled={safeMode.active}
+              />
+              <button onClick={() => runBeamSim()} disabled={safeMode.active || beamStatus === 'running'} style={{ marginTop: 12 }}>
+                {beamStatus === 'running' ? 'Simulating…' : 'Run Beam →'}
+              </button>
+            </div>
+            <div style={{ flex: '1 1 300px' }}>
+              <SteeringJoystick
+                theta={beamConfig.steering.theta}
+                phi={beamConfig.steering.phi}
+                onChange={(steering) => scheduleBeamSim({ ...beamConfigRef.current, steering })}
+              />
+            </div>
+          </div>
+          <div style={{ marginTop: 'var(--space-4)' }}>
+            {beamResult?.heatmap ? (
+              <AdaptiveCanvas
+                width={beamResult.width}
+                height={beamResult.height}
+                pixels={mapHeatmapToImageData(beamResult.heatmap, beamResult.width, beamResult.height)}
+                label={`Mode: ${beamConfig.renderMode}`}
+              />
+            ) : (
+              <p style={{ color: 'var(--text-muted)' }}>Run the beam simulation to visualize power levels.</p>
+            )}
+          </div>
         </section>
         <div
           style={{

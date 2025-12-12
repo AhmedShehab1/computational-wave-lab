@@ -30,10 +30,13 @@ export interface MixerPreset {
   brightnessConfig: BrightnessConfig
 }
 
+export type BeamRenderMode = 'interference' | 'beam-slice' | 'array-geometry'
+export type WidebandMode = 'aggregated' | 'per-carrier'
+
 export interface SimulationState {
   scenarioId: string
-  renderMode: 'interference' | 'beam-slice' | 'array-geometry'
-  widebandMode: 'aggregated' | 'per-carrier'
+  renderMode: BeamRenderMode
+  widebandMode: WidebandMode
 }
 
 export interface ArrayEntity {
@@ -111,4 +114,21 @@ export interface MixerJobPayload {
   brightnessConfig: BrightnessConfig
   targetViewport: OutputViewportId
   fftMode?: 'js' | 'wasm'
+}
+
+export interface BeamJobPayload {
+  arrays: ArrayEntity[]
+  steering: { theta: number; phi: number }
+  renderMode: BeamRenderMode
+  widebandMode: WidebandMode
+  resolution: number
+  bounds?: { xMin: number; xMax: number; yMin: number; yMax: number }
+}
+
+export interface BeamResult {
+  heatmap?: Float32Array
+  beamSlice?: Float32Array
+  geometry?: ArrayEntity[]
+  width: number
+  height: number
 }
