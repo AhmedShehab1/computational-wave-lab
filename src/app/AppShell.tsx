@@ -1,53 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import './AppShell.css'
 import { SafeModeBanner } from '@/components/SafeModeBanner'
 import { ToastStack } from '@/components/ToastStack'
+import { TopHeader } from '@/components/TopHeader'
 import { UploadPanel } from '@/components/UploadPanel'
 import { MixerControls } from '@/components/MixerControls'
 import { RegionControls } from '@/components/RegionControls'
 import { AdaptiveCanvas } from '@/components/AdaptiveCanvas'
 import { SteeringJoystick } from '@/components/SteeringJoystick'
 import { OutputViewport } from '@/components/OutputViewport'
+import { MeasurementsRibbon, createDefaultMeasurements } from '@/components/MeasurementsRibbon'
+import { StatusBar } from '@/components/StatusBar'
 import { useWorkerSupport } from '@/hooks/useWorkerSupport'
 import { useGlobalStore } from '@/state/globalStore'
 import { beamWorkerPool, fftWorkerPool, imageWorkerPool } from '@/workers/pool'
 import { mapHeatmapToImageData } from '@/utils/colormap'
 import { computeRowSpectrum } from '@/utils/spectrum'
-import { fftMode } from '@/config/runtime'
+import { fftMode as defaultFftMode } from '@/config/runtime'
 import type { BeamJobPayload, FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
-
-const shellStyle: CSSProperties = {
-  minHeight: '100vh',
-  display: 'grid',
-  gridTemplateRows: 'auto 1fr',
-  background: 'var(--bg-navy)',
-  color: 'var(--text-primary)',
-}
-
-const headerStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '12px 20px',
-  borderBottom: '1px solid var(--panel-border)',
-  background: 'var(--panel)',
-}
-
-const workspacesStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
-  gap: 'var(--space-6)',
-  padding: 'var(--space-6)',
-  position: 'relative',
-}
-
-const panelStyle: CSSProperties = {
-  background: 'var(--panel)',
-  border: '1px solid var(--panel-border)',
-  borderRadius: 'var(--radius-md)',
-  padding: 'var(--space-4)',
-  minHeight: '60vh',
-  boxShadow: 'var(--shadow-soft)',
-}
 
 export function AppShell() {
   const { supported } = useWorkerSupport()
@@ -71,6 +41,8 @@ export function AppShell() {
   const compareSelection = useGlobalStore((s) => s.compareSelection)
   const setCompareSelection = useGlobalStore((s) => s.setCompareSelection)
   const addSnapshot = useGlobalStore((s) => s.addSnapshot)
+  const fftMode = useGlobalStore((s) => s.fftMode)
+  const setFftMode = useGlobalStore((s) => s.setFftMode)
   const beamConfig = useGlobalStore((s) => s.beamConfig)
   const setBeamConfig = useGlobalStore((s) => s.setBeamConfig)
   const beamResult = useGlobalStore((s) => s.beamResult)
@@ -79,6 +51,7 @@ export function AppShell() {
   const setBeamStatus = useGlobalStore((s) => s.setBeamStatus)
   const beamConfigRef = useRef(beamConfig)
   const beamDebounce = useRef<number | null>(null)
+  const beamFrameMsRef = useRef<number | null>(null)
   const [showSpectrum, setShowSpectrum] = useState(false)
   const [spectrum, setSpectrum] = useState<Record<OutputViewportId, Float32Array | null>>({ 1: null, 2: null })
   const [loadingSlots, setLoadingSlots] = useState<Record<FileSlot, boolean>>({
@@ -87,6 +60,7 @@ export function AppShell() {
     C: false,
     D: false,
   })
+  const [modeUsed, setModeUsed] = useState<Record<OutputViewportId, MixerJobPayload['fftMode']>>({ 1: defaultFftMode, 2: defaultFftMode })
 
   useEffect(() => {
     beamConfigRef.current = beamConfig
@@ -245,8 +219,11 @@ export function AppShell() {
           pixels: Uint8ClampedArray
           modeUsed?: MixerJobPayload['fftMode']
         }
-        if (fftMode === 'wasm' && result.modeUsed !== 'wasm') {
+        const used = result.modeUsed ?? fftMode
+        setModeUsed((prev) => ({ ...prev, [target]: used }))
+        if (fftMode === 'wasm' && used !== 'wasm') {
           pushToast({ id: crypto.randomUUID(), type: 'warning', message: 'Wasm FFT unavailable, fell back to JS.' })
+          setFftMode('js')
         }
         setOutputImage(target, result)
         pushToast({
@@ -264,9 +241,12 @@ export function AppShell() {
           type: 'error',
           message: err instanceof Error ? err.message : 'Mix failed',
         })
+        if (fftMode === 'wasm') {
+          setFftMode('js')
+        }
       }
     },
-    [brightnessConfig, images, mixerConfig, pushToast, regionMask, safeMode.active, setMixerProgress, setOutputImage, setOutputStatus],
+    [brightnessConfig, fftMode, images, mixerConfig, pushToast, regionMask, safeMode.active, setFftMode, setMixerProgress, setOutputImage, setOutputStatus],
   )
 
   const runBeamSim = useCallback(async (config?: typeof beamConfig) => {
@@ -317,6 +297,35 @@ export function AppShell() {
     [runBeamSim, setBeamConfig],
   )
 
+  // UI state for new components
+  const [workspace, setWorkspace] = useState('Dual Workspace')
+  const [educationalMode, setEducationalMode] = useState(false)
+  const [measurements, setMeasurements] = useState(createDefaultMeasurements(15.2, 12.4, 14.3, -13.2))
+  const [systemLoad, setSystemLoad] = useState(25)
+  const [memoryUsage, setMemoryUsage] = useState(40)
+  const normalizedSize = useGlobalStore((s) => s.normalizedSize)
+
+  // Update measurements on beam result change
+  useEffect(() => {
+    if (beamResult) {
+      setMeasurements(createDefaultMeasurements(
+        15 + Math.random() * 5,
+        12 + Math.random() * 3,
+        14 + Math.random() * 2,
+        -13 - Math.random() * 3
+      ))
+    }
+  }, [beamResult])
+
+  // Fake system metrics
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSystemLoad(prev => Math.max(10, Math.min(90, prev + (Math.random() - 0.5) * 10)))
+      setMemoryUsage(prev => Math.max(20, Math.min(80, prev + (Math.random() - 0.5) * 5)))
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [])
+
   useEffect(() => () => {
     if (beamDebounce.current) window.clearTimeout(beamDebounce.current)
   }, [])
@@ -343,266 +352,134 @@ export function AppShell() {
   }, [runBeamSim, runMix, setShowSpectrum])
 
   return (
-    <div style={shellStyle}>
+    <div className="app-shell">
       <SafeModeBanner
         active={safeMode.active}
         message={safeMode.reason || 'Hardware Acceleration Disabled. Simulation paused.'}
         helpUrl="https://example.com/troubleshooting"
       />
       <ToastStack />
-      <header style={headerStyle}>
-        <div>Quantum Wave Research — Workspace</div>
-        <div>Top Bar Placeholder</div>
-      </header>
-      <main style={workspacesStyle}>
-        <section style={panelStyle}>
-          <h2>Fourier Mixer</h2>
-          <UploadPanel onFilesAccepted={handleFilesAccepted} />
-          <MixerControls />
-          <RegionControls />
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-            <button onClick={() => runMix(1)} disabled={safeMode.active || outputStatus[1] === 'mixing'} title="Runs FFT mix into Output 1">
-              {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}{' '}
-              <span style={{ fontSize: 11, paddingLeft: 6, color: 'var(--text-muted)' }}>
-                {safeMode.active ? 'Safe Mode' : outputStatus[1] === 'mixing' ? 'Mixing…' : 'Ready'}
-              </span>
-            </button>
-            <button
-              onClick={() => setShowSpectrum((prev) => !prev)}
-              aria-pressed={showSpectrum}
-              style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}
-              title="Toggle spectrum overlay"
-            >
-              <span>{showSpectrum ? 'Hide spectrum' : 'Show spectrum'}</span>
-            </button>
-            {safeMode.active ? <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Processing disabled in Safe Mode</span> : null}
-          </div>
-          {outputStatus[1] === 'mixing' && (
-            <div style={{ marginTop: 8, height: 6, background: 'var(--panel-border)', borderRadius: 6 }}>
-              <div
-                style={{
-                  width: `${Math.round((mixerProgress[1] ?? 0) * 100)}%`,
-                  height: '100%',
-                  background: 'var(--accent)',
-                  borderRadius: 6,
-                  transition: 'width 120ms ease-out',
-                }}
-              />
-            </div>
-          )}
-          <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            Loading: {Object.entries(loadingSlots).filter(([, v]) => v).map(([k]) => k).join(', ') || 'idle'}
-          </p>
-          <div style={{ display: 'grid', gap: 18, marginTop: 12 }}>
-            <OutputViewport
-              title="Output 1"
-              image={outputImages[1]}
-              loading={outputStatus[1] === 'mixing'}
-              showSpectrum={showSpectrum}
-              spectrumData={spectrum[1] ?? undefined}
-              safeMode={safeMode.active}
-            />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                onClick={() => {
-                  const img = outputImages[1]
-                  if (!img) return
-                  addSnapshot(1, img)
-                  pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Snapshot pinned' })
-                }}
-                disabled={safeMode.active || !outputImages[1]}
-              >
-                Snapshot
-              </button>
-              <label style={{ fontSize: 12 }}>Compare target</label>
-              <button
-                onClick={() => setCompareSelection(1, null)}
-                disabled={!compareSelection[1]}
-                aria-disabled={!compareSelection[1]}
-                style={{ fontSize: 12 }}
-              >
-                Clear
-              </button>
-            </div>
-            {snapshots.filter((s) => s.viewport === 1).length ? (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  overflowX: 'auto',
-                  padding: 4,
-                  border: '1px solid var(--panel-border)',
-                  borderRadius: 6,
-                  backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
-                  backgroundSize: '100% 12px',
-                }}
-                role="listbox"
-                aria-label="Snapshots for Output 1"
-              >
-                {snapshots
-                  .filter((s) => s.viewport === 1)
-                  .map((snap) => {
-                    const isSelected = compareSelection[1] === snap.id
-                    return (
-                      <button
-                        key={snap.id}
-                        onClick={() => setCompareSelection(1, snap.id)}
-                        aria-pressed={isSelected}
-                        role="option"
-                        aria-label={`Snapshot captured at ${new Date(snap.createdAt).toLocaleString()}`}
-                        style={{
-                          border: isSelected ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
-                          borderRadius: 6,
-                          padding: 2,
-                          background: isSelected ? 'rgba(77,208,225,0.1)' : 'var(--panel)',
-                          cursor: 'pointer',
-                        }}
-                        title={new Date(snap.createdAt).toLocaleString()}
-                      >
-                        <canvas
-                          width={Math.max(1, Math.floor(snap.image.width / 4))}
-                          height={Math.max(1, Math.floor(snap.image.height / 4))}
-                          style={{ display: 'block' }}
-                          ref={(el) => {
-                            if (!el) return
-                            const ctx = el.getContext('2d')
-                            if (!ctx) return
-                            const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
-                            const off = document.createElement('canvas')
-                            off.width = snap.image.width
-                            off.height = snap.image.height
-                            const octx = off.getContext('2d')
-                            if (!octx) return
-                            octx.putImageData(imgData, 0, 0)
-                            ctx.drawImage(off, 0, 0, el.width, el.height)
-                          }}
-                        />
-                      </button>
-                    )
-                  })}
-              </div>
-            ) : null}
-            {compareSelection[1]
-              ? (() => {
-                  const snap = snapshots.find((s) => s.id === compareSelection[1])
-                  if (!snap) return null
-                  return (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Comparing to selected snapshot</span>
-                      <canvas
-                        width={Math.max(1, Math.floor(snap.image.width / 6))}
-                        height={Math.max(1, Math.floor(snap.image.height / 6))}
-                        style={{ border: '1px solid var(--panel-border)', borderRadius: 4, background: '#0b1020' }}
-                        ref={(el) => {
-                          if (!el) return
-                          const ctx = el.getContext('2d')
-                          if (!ctx) return
-                          const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
-                          const off = document.createElement('canvas')
-                          off.width = snap.image.width
-                          off.height = snap.image.height
-                          const octx = off.getContext('2d')
-                          if (!octx) return
-                          octx.putImageData(imgData, 0, 0)
-                          ctx.drawImage(off, 0, 0, el.width, el.height)
-                        }}
-                        aria-label="Selected snapshot for comparison"
-                      />
-                    </div>
-                  )
-                })()
-              : null}
 
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={() => runMix(2)} disabled={safeMode.active || outputStatus[2] === 'mixing'} title="Runs FFT mix into Output 2">
-                {outputStatus[2] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 2'}{' '}
-                <span style={{ fontSize: 11, paddingLeft: 6, color: 'var(--text-muted)' }}>
-                  {safeMode.active ? 'Safe Mode' : outputStatus[2] === 'mixing' ? 'Mixing…' : 'Ready'}
-                </span>
+      {/* Top Header */}
+      <TopHeader
+        projectName="Quantum Wave Research - Dual Workspace"
+        taskName="DSP Lab Session"
+        workspace={workspace}
+        onWorkspaceChange={setWorkspace}
+        imageSize={normalizedSize}
+        uploadWarning={safeMode.active ? 'Safe mode active' : null}
+        educationalMode={educationalMode}
+        onEducationalToggle={setEducationalMode}
+        fftMode={fftMode}
+        onFftModeChange={(mode) => setFftMode(mode)}
+      />
+
+      {/* Main Workspace */}
+      <main className="main-workspace">
+        {/* Part A - Fourier Mixer */}
+        <div className="panel fourier-panel">
+          <div className="panel-header">
+            <h2>
+              <span className="part-label">Part A</span>
+              <span className="accent">Fourier Mixer</span>
+            </h2>
+          </div>
+          <div className="panel-content">
+            <UploadPanel onFilesAccepted={handleFilesAccepted} />
+            <MixerControls />
+            <RegionControls />
+            
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '12px' }}>
+              <button 
+                className="scenario-btn"
+                onClick={() => runMix(1)} 
+                disabled={safeMode.active || outputStatus[1] === 'mixing'}
+              >
+                {outputStatus[1] === 'mixing' ? '⏳ Mixing...' : '▶ Run Mix (R)'}
               </button>
+              <button
+                className="scenario-btn"
+                onClick={() => setShowSpectrum((prev) => !prev)}
+                aria-pressed={showSpectrum}
+              >
+                {showSpectrum ? '📊 Hide Spectrum' : '📊 Show Spectrum'}
+              </button>
+              <span className="size-badge">
+                <span className="icon">⚙️</span>
+                <span>{(modeUsed[1] || 'js').toUpperCase()}</span>
+              </span>
             </div>
-            {outputStatus[2] === 'mixing' && (
-              <div style={{ marginTop: 8, height: 6, background: 'var(--panel-border)', borderRadius: 6 }}>
+            
+            {outputStatus[1] === 'mixing' && (
+              <div style={{ marginTop: '12px', height: '6px', background: 'var(--bg-input)', borderRadius: '3px' }}>
                 <div
                   style={{
-                    width: `${Math.round((mixerProgress[2] ?? 0) * 100)}%`,
+                    width: `${Math.round((mixerProgress[1] ?? 0) * 100)}%`,
                     height: '100%',
-                    background: 'var(--accent)',
-                    borderRadius: 6,
+                    background: 'var(--gradient-accent)',
+                    borderRadius: '3px',
                     transition: 'width 120ms ease-out',
                   }}
                 />
               </div>
             )}
-            <OutputViewport
-              title="Output 2"
-              image={outputImages[2]}
-              loading={outputStatus[2] === 'mixing'}
-              showSpectrum={showSpectrum}
-              spectrumData={spectrum[2] ?? undefined}
-              safeMode={safeMode.active}
-            />
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                onClick={() => {
-                  const img = outputImages[2]
-                  if (!img) return
-                  addSnapshot(2, img)
-                  pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Snapshot pinned' })
-                }}
-                disabled={safeMode.active || !outputImages[2]}
-              >
-                Snapshot
-              </button>
-              <label style={{ fontSize: 12 }}>Compare target</label>
-              <button
-                onClick={() => setCompareSelection(2, null)}
-                disabled={!compareSelection[2]}
-                aria-disabled={!compareSelection[2]}
-                style={{ fontSize: 12 }}
-              >
-                Clear
-              </button>
-            </div>
-            {snapshots.filter((s) => s.viewport === 2).length ? (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  overflowX: 'auto',
-                  padding: 4,
-                  border: '1px solid var(--panel-border)',
-                  borderRadius: 6,
-                  backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
-                  backgroundSize: '100% 12px',
-                }}
-                role="listbox"
-                aria-label="Snapshots for Output 2"
-              >
-                {snapshots
-                  .filter((s) => s.viewport === 2)
-                  .map((snap) => {
-                    const isSelected = compareSelection[2] === snap.id
-                    return (
-                      <button
-                        key={snap.id}
-                        onClick={() => setCompareSelection(2, snap.id)}
-                        aria-pressed={isSelected}
-                        role="option"
-                        aria-label={`Snapshot captured at ${new Date(snap.createdAt).toLocaleString()}`}
-                        style={{
-                          border: isSelected ? '2px solid var(--accent)' : '1px solid var(--panel-border)',
-                          borderRadius: 6,
-                          padding: 2,
-                          background: isSelected ? 'rgba(77,208,225,0.1)' : 'var(--panel)',
-                          cursor: 'pointer',
-                        }}
-                        title={new Date(snap.createdAt).toLocaleString()}
-                      >
+            
+            <p style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '8px' }}>
+              Loading: {Object.entries(loadingSlots).filter(([, v]) => v).map(([k]) => k).join(', ') || 'idle'}
+            </p>
+            
+            {/* Output Viewports */}
+            <div className="output-section" style={{ marginTop: '16px' }}>
+              <div className="output-header">
+                <h3>Output 1</h3>
+                <div className={`output-status ${outputStatus[1] === 'mixing' ? 'mixing' : 'routing'}`}>
+                  {outputStatus[1] === 'mixing' ? '◌ Mixing' : '● Ready'}
+                </div>
+              </div>
+              <OutputViewport
+                title="Output 1"
+                image={outputImages[1]}
+                loading={outputStatus[1] === 'mixing'}
+                showSpectrum={showSpectrum}
+                spectrumData={spectrum[1] ?? undefined}
+                safeMode={safeMode.active}
+              />
+              <div className="output-footer">
+                <label className="spectrum-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showSpectrum}
+                    onChange={() => setShowSpectrum(!showSpectrum)}
+                  />
+                  Show Spectrum
+                </label>
+                <button
+                  className="snapshot-btn"
+                  onClick={() => {
+                    const img = outputImages[1]
+                    if (!img) return
+                    addSnapshot(1, img)
+                    pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Snapshot pinned' })
+                  }}
+                  disabled={safeMode.active || !outputImages[1]}
+                >
+                  📷 Snapshot
+                </button>
+              </div>
+              {snapshots.filter((s) => s.viewport === 1).length > 0 && (
+                <div className="snapshot-strip">
+                  {snapshots
+                    .filter((s) => s.viewport === 1)
+                    .map((snap) => {
+                      const isSelected = compareSelection[1] === snap.id
+                      return (
                         <canvas
-                          width={Math.max(1, Math.floor(snap.image.width / 4))}
-                          height={Math.max(1, Math.floor(snap.image.height / 4))}
-                          style={{ display: 'block' }}
+                          key={snap.id}
+                          className={`snapshot-thumb ${isSelected ? 'selected' : ''}`}
+                          width={48}
+                          height={36}
+                          onClick={() => setCompareSelection(1, isSelected ? null : snap.id)}
+                          title={new Date(snap.createdAt).toLocaleString()}
                           ref={(el) => {
                             if (!el) return
                             const ctx = el.getContext('2d')
@@ -617,131 +494,220 @@ export function AppShell() {
                             ctx.drawImage(off, 0, 0, el.width, el.height)
                           }}
                         />
-                      </button>
-                    )
-                  })}
+                      )
+                    })}
+                </div>
+              )}
+            </div>
+
+            {/* Output 2 */}
+            <div className="output-section" style={{ marginTop: '16px' }}>
+              <div className="output-header">
+                <h3>Output 2</h3>
+                <button className="scenario-btn" onClick={() => runMix(2)} disabled={safeMode.active || outputStatus[2] === 'mixing'}>
+                  {outputStatus[2] === 'mixing' ? '⏳ Mixing...' : '▶ Mix'}
+                </button>
+                <div className={`output-status ${outputStatus[2] === 'mixing' ? 'mixing' : 'routing'}`}>
+                  {outputStatus[2] === 'mixing' ? '◌ Mixing' : '● Ready'}
+                </div>
               </div>
-            ) : null}
-            {compareSelection[2]
-              ? (() => {
-                  const snap = snapshots.find((s) => s.id === compareSelection[2])
-                  if (!snap) return null
-                  return (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Comparing to selected snapshot</span>
-                      <canvas
-                        width={Math.max(1, Math.floor(snap.image.width / 6))}
-                        height={Math.max(1, Math.floor(snap.image.height / 6))}
-                        style={{ border: '1px solid var(--panel-border)', borderRadius: 4, background: '#0b1020' }}
-                        ref={(el) => {
-                          if (!el) return
-                          const ctx = el.getContext('2d')
-                          if (!ctx) return
-                          const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
-                          const off = document.createElement('canvas')
-                          off.width = snap.image.width
-                          off.height = snap.image.height
-                          const octx = off.getContext('2d')
-                          if (!octx) return
-                          octx.putImageData(imgData, 0, 0)
-                          ctx.drawImage(off, 0, 0, el.width, el.height)
-                        }}
-                        aria-label="Selected snapshot for comparison"
-                      />
+              <OutputViewport
+                title="Output 2"
+                image={outputImages[2]}
+                loading={outputStatus[2] === 'mixing'}
+                showSpectrum={showSpectrum}
+                spectrumData={spectrum[2] ?? undefined}
+                safeMode={safeMode.active}
+              />
+              <div className="output-footer">
+                <button
+                  className="snapshot-btn"
+                  onClick={() => {
+                    const img = outputImages[2]
+                    if (!img) return
+                    addSnapshot(2, img)
+                    pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Snapshot pinned' })
+                  }}
+                  disabled={safeMode.active || !outputImages[2]}
+                >
+                  📷 Snapshot
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Part B - Beamforming Simulator */}
+        <div className="panel beam-panel">
+          <div className="panel-header">
+            <h2>
+              <span className="part-label">Part B</span>
+              <span className="accent">Beamforming Simulator</span>
+            </h2>
+          </div>
+          <div className="panel-content">
+            <div style={{ display: 'grid', gap: '16px' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Render Mode</label>
+                  <select
+                    className="header-select"
+                    value={beamConfig.renderMode}
+                    onChange={(e) => {
+                      const renderMode = e.target.value as BeamJobPayload['renderMode']
+                      scheduleBeamSim({ ...beamConfigRef.current, renderMode })
+                    }}
+                    disabled={safeMode.active}
+                  >
+                    <option value="interference">Interference</option>
+                    <option value="beam-slice">Beam Slice</option>
+                    <option value="array-geometry">Array Geometry</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Wideband Mode</label>
+                  <select
+                    className="header-select"
+                    value={beamConfig.widebandMode}
+                    onChange={(e) => {
+                      const widebandMode = e.target.value as BeamJobPayload['widebandMode']
+                      scheduleBeamSim({ ...beamConfigRef.current, widebandMode })
+                    }}
+                    disabled={safeMode.active}
+                  >
+                    <option value="aggregated">Aggregated</option>
+                    <option value="per-carrier">Per-carrier</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Resolution</label>
+                  <input
+                    type="number"
+                    min={64}
+                    max={512}
+                    value={beamConfig.resolution}
+                    onChange={(e) => {
+                      const resolution = Number(e.target.value)
+                      scheduleBeamSim({ ...beamConfigRef.current, resolution })
+                    }}
+                    disabled={safeMode.active}
+                    style={{
+                      width: '80px',
+                      padding: '6px 10px',
+                      background: 'var(--bg-input)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--text-primary)',
+                      fontSize: '12px'
+                    }}
+                  />
+                </div>
+                <button 
+                  className="scenario-btn" 
+                  onClick={() => runBeamSim()} 
+                  disabled={safeMode.active || beamStatus === 'running'}
+                  style={{ alignSelf: 'flex-end' }}
+                >
+                  {beamStatus === 'running' ? '⏳ Simulating...' : '▶ Run Beam (B)'}
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <SteeringJoystick
+                    theta={beamConfig.steering.theta}
+                    phi={beamConfig.steering.phi}
+                    onChange={(steering) => scheduleBeamSim({ ...beamConfigRef.current, steering })}
+                  />
+                </div>
+                <div>
+                  {beamResult?.heatmap ? (
+                    (() => {
+                      const t0 = performance.now()
+                      const pixels = mapHeatmapToImageData(beamResult.heatmap, beamResult.width, beamResult.height)
+                      const dt = performance.now() - t0
+                      if (import.meta.env.DEV) {
+                        beamFrameMsRef.current = dt
+                      }
+                      return (
+                        <div>
+                          <AdaptiveCanvas 
+                            width={beamResult.width} 
+                            height={beamResult.height} 
+                            pixels={pixels} 
+                            label={`Mode: ${beamConfig.renderMode}`} 
+                          />
+                          {beamFrameMsRef.current ? (
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                              Render: {beamFrameMsRef.current.toFixed(2)} ms
+                            </span>
+                          ) : null}
+                        </div>
+                      )
+                    })()
+                  ) : (
+                    <div style={{ 
+                      aspectRatio: '1', 
+                      background: 'var(--bg-dark)', 
+                      borderRadius: 'var(--radius-md)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      color: 'var(--text-muted)',
+                      fontSize: '12px'
+                    }}>
+                      Run beam simulation to visualize
                     </div>
-                  )
-                })()
-              : null}
-          </div>
-        </section>
-        <section style={panelStyle}>
-          <h2>Beamforming Simulator</h2>
-          <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
-            <div style={{ minWidth: 240 }}>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>Render Mode</label>
-              <select
-                value={beamConfig.renderMode}
-                onChange={(e) => {
-                  const renderMode = e.target.value as BeamJobPayload['renderMode']
-                  scheduleBeamSim({ ...beamConfigRef.current, renderMode })
-                }}
-                disabled={safeMode.active}
-              >
-                <option value="interference">Interference</option>
-                <option value="beam-slice">Beam Slice</option>
-                <option value="array-geometry">Array Geometry</option>
-              </select>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-                Wideband Mode
-              </label>
-              <select
-                value={beamConfig.widebandMode}
-                onChange={(e) => {
-                  const widebandMode = e.target.value as BeamJobPayload['widebandMode']
-                  scheduleBeamSim({ ...beamConfigRef.current, widebandMode })
-                }}
-                disabled={safeMode.active}
-              >
-                <option value="aggregated">Aggregated</option>
-                <option value="per-carrier">Per-carrier</option>
-              </select>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-                Resolution
-              </label>
-              <input
-                type="number"
-                min={64}
-                max={512}
-                value={beamConfig.resolution}
-                onChange={(e) => {
-                  const resolution = Number(e.target.value)
-                  scheduleBeamSim({ ...beamConfigRef.current, resolution })
-                }}
-                disabled={safeMode.active}
-              />
-              <button onClick={() => runBeamSim()} disabled={safeMode.active || beamStatus === 'running'} style={{ marginTop: 12 }}>
-                {beamStatus === 'running' ? 'Simulating…' : 'Run Beam →'}{' '}
-                <span style={{ fontSize: 11, paddingLeft: 6, color: 'var(--text-muted)' }}>
-                  {safeMode.active ? 'Safe Mode' : beamStatus === 'running' ? 'Running…' : 'Ready'}
-                </span>
-              </button>
-            </div>
-            <div style={{ flex: '1 1 300px' }}>
-              <SteeringJoystick
-                theta={beamConfig.steering.theta}
-                phi={beamConfig.steering.phi}
-                onChange={(steering) => scheduleBeamSim({ ...beamConfigRef.current, steering })}
-              />
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-          <div style={{ marginTop: 'var(--space-4)' }}>
-            {beamResult?.heatmap ? (
-              <AdaptiveCanvas
-                width={beamResult.width}
-                height={beamResult.height}
-                pixels={mapHeatmapToImageData(beamResult.heatmap, beamResult.width, beamResult.height)}
-                label={`Mode: ${beamConfig.renderMode}`}
-              />
-            ) : (
-              <p style={{ color: 'var(--text-muted)' }}>Run the beam simulation to visualize power levels.</p>
-            )}
+        </div>
+
+        {/* Parameter Sidebar placeholder */}
+        <div className="param-sidebar" style={{ padding: '16px' }}>
+          <div className="param-section open">
+            <div className="param-section-header">
+              <h3>⏱️ Delays & Phases</h3>
+            </div>
+            <div className="param-section-content">
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Adjust element delays and phases for beam steering</p>
+            </div>
           </div>
-        </section>
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            display: 'grid',
-            alignContent: 'flex-start',
-            gap: 'var(--space-2)',
-          }}
-          aria-hidden
-        >
-          <div style={{ marginLeft: 'auto', width: '260px' }}>Educational Explain Overlay (TODO)</div>
-          <div style={{ marginLeft: 'auto', width: '260px' }}>Undo/Redo Controls (TODO)</div>
+          <div className="param-section">
+            <div className="param-section-header">
+              <h3>📶 Frequencies</h3>
+              <span className="chevron">▶</span>
+            </div>
+          </div>
+          <div className="param-section">
+            <div className="param-section-header">
+              <h3>🎯 Scenarios</h3>
+              <span className="chevron">▶</span>
+            </div>
+          </div>
+          <div className="param-section">
+            <div className="param-section-header">
+              <h3>⚙️ Algorithm</h3>
+              <span className="chevron">▶</span>
+            </div>
+          </div>
         </div>
       </main>
+
+      {/* Measurements Ribbon */}
+      <MeasurementsRibbon measurements={measurements} />
+
+      {/* Status Bar */}
+      <StatusBar
+        fourierStatus={outputStatus[1] === 'mixing' ? 'processing' : outputImages[1] ? 'ready' : 'idle'}
+        beamStatus={beamStatus === 'running' ? 'processing' : beamResult ? 'ready' : 'idle'}
+        systemLoad={systemLoad}
+        memoryUsage={memoryUsage}
+        time={new Date()}
+        onHelpClick={() => pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Press R to mix, B for beam sim, C to toggle spectrum' })}
+      />
     </div>
   )
 }
