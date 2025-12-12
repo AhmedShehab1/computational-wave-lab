@@ -6,10 +6,12 @@ import { MixerControls } from '@/components/MixerControls'
 import { RegionControls } from '@/components/RegionControls'
 import { AdaptiveCanvas } from '@/components/AdaptiveCanvas'
 import { SteeringJoystick } from '@/components/SteeringJoystick'
+import { OutputViewport } from '@/components/OutputViewport'
 import { useWorkerSupport } from '@/hooks/useWorkerSupport'
 import { useGlobalStore } from '@/state/globalStore'
 import { beamWorkerPool, fftWorkerPool, imageWorkerPool } from '@/workers/pool'
 import { mapHeatmapToImageData } from '@/utils/colormap'
+import { computeRowSpectrum } from '@/utils/spectrum'
 import type { BeamJobPayload, FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
 
 const shellStyle: CSSProperties = {
@@ -61,8 +63,11 @@ export function AppShell() {
   const setOutputImage = useGlobalStore((s) => s.setOutputImage)
   const setOutputStatus = useGlobalStore((s) => s.setOutputStatus)
   const outputStatus = useGlobalStore((s) => s.outputStatus)
+  const outputImages = useGlobalStore((s) => s.outputImages)
   const mixerProgress = useGlobalStore((s) => s.mixerProgress)
   const setMixerProgress = useGlobalStore((s) => s.setMixerProgress)
+  const snapshots = useGlobalStore((s) => s.snapshots)
+  const addSnapshot = useGlobalStore((s) => s.addSnapshot)
   const beamConfig = useGlobalStore((s) => s.beamConfig)
   const setBeamConfig = useGlobalStore((s) => s.setBeamConfig)
   const beamResult = useGlobalStore((s) => s.beamResult)
@@ -71,6 +76,8 @@ export function AppShell() {
   const setBeamStatus = useGlobalStore((s) => s.setBeamStatus)
   const beamConfigRef = useRef(beamConfig)
   const beamDebounce = useRef<number | null>(null)
+  const [showSpectrum, setShowSpectrum] = useState(false)
+  const [spectrum, setSpectrum] = useState<Record<OutputViewportId, Float32Array | null>>({ 1: null, 2: null })
   const [loadingSlots, setLoadingSlots] = useState<Record<FileSlot, boolean>>({
     A: false,
     B: false,
@@ -175,6 +182,22 @@ export function AppShell() {
   useEffect(() => {
     if (!supported) setSafeMode({ active: true })
   }, [supported, setSafeMode])
+
+  useEffect(() => {
+    if (!showSpectrum) {
+      setSpectrum({ 1: null, 2: null })
+      return
+    }
+    const next: Record<OutputViewportId, Float32Array | null> = { 1: null, 2: null }
+    ;(['1', '2'] as const).forEach((key: '1' | '2') => {
+      const id = Number(key) as OutputViewportId
+      const img = outputImages[id]
+      if (img) {
+        next[id] = computeRowSpectrum(img.pixels, img.width, img.height)
+      }
+    })
+    setSpectrum(next)
+  }, [outputImages, showSpectrum])
 
   const runMix = useCallback(
     async (target: OutputViewportId) => {
@@ -296,9 +319,20 @@ export function AppShell() {
           <UploadPanel onFilesAccepted={handleFilesAccepted} />
           <MixerControls />
           <RegionControls />
-          <button onClick={() => runMix(1)} disabled={safeMode.active}>
-            {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+            <button onClick={() => runMix(1)} disabled={safeMode.active || outputStatus[1] === 'mixing'} title="Runs FFT mix into Output 1">
+              {outputStatus[1] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 1'}
+            </button>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={showSpectrum}
+                onChange={(e) => setShowSpectrum(e.target.checked)}
+              />
+              Show contributing spectrum
+            </label>
+            {safeMode.active ? <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Processing disabled in Safe Mode</span> : null}
+          </div>
           {outputStatus[1] === 'mixing' && (
             <div style={{ marginTop: 8, height: 6, background: 'var(--panel-border)', borderRadius: 6 }}>
               <div
@@ -315,6 +349,123 @@ export function AppShell() {
           <p style={{ color: 'var(--text-muted)', fontSize: 12 }}>
             Loading: {Object.entries(loadingSlots).filter(([, v]) => v).map(([k]) => k).join(', ') || 'idle'}
           </p>
+          <div style={{ display: 'grid', gap: 18, marginTop: 12 }}>
+            <OutputViewport
+              title="Output 1"
+              image={outputImages[1]}
+              loading={outputStatus[1] === 'mixing'}
+              showSpectrum={showSpectrum}
+              spectrumData={spectrum[1] ?? undefined}
+              safeMode={safeMode.active}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={() => {
+                  const img = outputImages[1]
+                  if (!img) return
+                  addSnapshot(1, img)
+                  pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Snapshot pinned' })
+                }}
+                disabled={safeMode.active || !outputImages[1]}
+              >
+                Snapshot
+              </button>
+              <label style={{ fontSize: 12 }}>Compare (placeholder)</label>
+            </div>
+            {snapshots.filter((s) => s.viewport === 1).length ? (
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: 4, border: '1px solid var(--panel-border)', borderRadius: 6 }}>
+                {snapshots
+                  .filter((s) => s.viewport === 1)
+                  .map((snap) => (
+                    <canvas
+                      key={snap.id}
+                      width={Math.max(1, Math.floor(snap.image.width / 4))}
+                      height={Math.max(1, Math.floor(snap.image.height / 4))}
+                      ref={(el) => {
+                        if (!el) return
+                        const ctx = el.getContext('2d')
+                        if (!ctx) return
+                        const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                        const off = document.createElement('canvas')
+                        off.width = snap.image.width
+                        off.height = snap.image.height
+                        const octx = off.getContext('2d')
+                        if (!octx) return
+                        octx.putImageData(imgData, 0, 0)
+                        ctx.drawImage(off, 0, 0, el.width, el.height)
+                      }}
+                    />
+                  ))}
+              </div>
+            ) : null}
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => runMix(2)} disabled={safeMode.active || outputStatus[2] === 'mixing'} title="Runs FFT mix into Output 2">
+                {outputStatus[2] === 'mixing' ? 'Mixing…' : 'Run Mix → Output 2'}
+              </button>
+            </div>
+            {outputStatus[2] === 'mixing' && (
+              <div style={{ marginTop: 8, height: 6, background: 'var(--panel-border)', borderRadius: 6 }}>
+                <div
+                  style={{
+                    width: `${Math.round((mixerProgress[2] ?? 0) * 100)}%`,
+                    height: '100%',
+                    background: 'var(--accent)',
+                    borderRadius: 6,
+                    transition: 'width 120ms ease-out',
+                  }}
+                />
+              </div>
+            )}
+            <OutputViewport
+              title="Output 2"
+              image={outputImages[2]}
+              loading={outputStatus[2] === 'mixing'}
+              showSpectrum={showSpectrum}
+              spectrumData={spectrum[2] ?? undefined}
+              safeMode={safeMode.active}
+            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={() => {
+                  const img = outputImages[2]
+                  if (!img) return
+                  addSnapshot(2, img)
+                  pushToast({ id: crypto.randomUUID(), type: 'info', message: 'Snapshot pinned' })
+                }}
+                disabled={safeMode.active || !outputImages[2]}
+              >
+                Snapshot
+              </button>
+              <label style={{ fontSize: 12 }}>Compare (placeholder)</label>
+            </div>
+            {snapshots.filter((s) => s.viewport === 2).length ? (
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', padding: 4, border: '1px solid var(--panel-border)', borderRadius: 6 }}>
+                {snapshots
+                  .filter((s) => s.viewport === 2)
+                  .map((snap) => (
+                    <canvas
+                      key={snap.id}
+                      width={Math.max(1, Math.floor(snap.image.width / 4))}
+                      height={Math.max(1, Math.floor(snap.image.height / 4))}
+                      ref={(el) => {
+                        if (!el) return
+                        const ctx = el.getContext('2d')
+                        if (!ctx) return
+                        const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                        const off = document.createElement('canvas')
+                        off.width = snap.image.width
+                        off.height = snap.image.height
+                        const octx = off.getContext('2d')
+                        if (!octx) return
+                        octx.putImageData(imgData, 0, 0)
+                        ctx.drawImage(off, 0, 0, el.width, el.height)
+                      }}
+                    />
+                  ))}
+              </div>
+            ) : null}
+          </div>
         </section>
         <section style={panelStyle}>
           <h2>Beamforming Simulator</h2>

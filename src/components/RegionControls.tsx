@@ -8,9 +8,9 @@ export function RegionControls() {
   const update = (patch: Partial<RegionMask>) => setRegionMask({ ...regionMask, ...patch })
 
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <label>
-        Region mode
+    <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+      <label style={{ display: 'grid', gap: 4 }}>
+        Mode
         <select
           value={regionMask.mode}
           onChange={(e) => update({ mode: e.target.value as RegionMask['mode'] })}
@@ -19,17 +19,54 @@ export function RegionControls() {
           <option value="exclude">Exclude</option>
         </select>
       </label>
-      <label>
-        Radius
-        <input
-          type="number"
-          min={0.1}
-          max={1}
-          step={0.1}
-          value={regionMask.radius ?? 1}
-          onChange={(e) => update({ radius: Number(e.target.value) })}
-        />
+      <label style={{ display: 'grid', gap: 4 }}>
+        Shape
+        <select
+          value={regionMask.shape}
+          onChange={(e) => update({ shape: e.target.value as RegionMask['shape'] })}
+        >
+          <option value="circle">Circle</option>
+          <option value="rect">Rectangle</option>
+        </select>
       </label>
+      {regionMask.shape === 'circle' ? (
+        <label style={{ display: 'grid', gap: 4 }}>
+          Radius (norm)
+          <input
+            type="number"
+            min={0.05}
+            max={1}
+            step={0.05}
+            value={regionMask.radius ?? 1}
+            onChange={(e) => update({ radius: Number(e.target.value) })}
+          />
+        </label>
+      ) : (
+        <>
+          <label style={{ display: 'grid', gap: 4 }}>
+            Width (norm)
+            <input
+              type="number"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={regionMask.width ?? 1}
+              onChange={(e) => update({ width: Number(e.target.value) })}
+            />
+          </label>
+          <label style={{ display: 'grid', gap: 4 }}>
+            Height (norm)
+            <input
+              type="number"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={regionMask.height ?? 1}
+              onChange={(e) => update({ height: Number(e.target.value) })}
+            />
+          </label>
+        </>
+      )}
     </div>
   )
 }
