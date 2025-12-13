@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import { SourceImageCard, type ImageSlotData, type FTComponentView } from './SourceImageCard';
+import { SourceImageCard, type ImageSlotData, type FTComponentView, type RegionRect } from './SourceImageCard';
 import { ImageProcessor } from '@/dsp/ImageProcessor';
 import { WorkerManager } from '@/workers/pool';
 import type { FFTHistogramResult, FFTHistogramPayload } from '@/workers/fft-histogram.worker';
@@ -7,9 +7,8 @@ import './SourceImageGridEnhanced.css';
 
 interface SourceImageGridEnhancedProps {
   onImagesChange?: (images: ImageSlotData[]) => void;
+  onRegionConfigChange?: (config: { rect: RegionRect; mode: 'inner' | 'outer' }) => void;
   initialImages?: ImageSlotData[];
-  unifiedRegion?: { x: number; y: number; width: number; height: number } | null;
-  onRegionChange?: (region: { x: number; y: number; width: number; height: number }) => void;
 }
 
 const createEmptySlot = (id: string, _index: number): ImageSlotData => ({
@@ -26,24 +25,34 @@ const createEmptySlot = (id: string, _index: number): ImageSlotData => ({
 
 const SLOT_IDS = ['A', 'B', 'C', 'D'];
 
+// Default region: centered 40% rectangle
+const DEFAULT_REGION: RegionRect = { x: 30, y: 30, width: 40, height: 40 };
+
 // Create worker for FFT histogram calculations
 const createHistogramWorker = () =>
   new Worker(new URL('../workers/fft-histogram.worker.ts', import.meta.url), { type: 'module' });
 
 export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = ({
   onImagesChange,
+  onRegionConfigChange,
   initialImages,
-  unifiedRegion,
-  onRegionChange,
 }) => {
   const [slots, setSlots] = useState<ImageSlotData[]>(() =>
     initialImages || SLOT_IDS.map((id, i) => createEmptySlot(id, i))
   );
   const [loadingSlots, setLoadingSlots] = useState<Record<string, boolean>>({});
   const [normalizedSize, setNormalizedSize] = useState<{ width: number; height: number } | null>(null);
+  const [regionRect, setRegionRect] = useState<RegionRect>(DEFAULT_REGION);
+  const [regionMode, setRegionMode] = useState<'inner' | 'outer'>('inner');
   
   const workerPoolRef = useRef<WorkerManager<FFTHistogramPayload> | null>(null);
   const imageProcessorRef = useRef<ImageProcessor>(new ImageProcessor());
+  const slotsRef = useRef<ImageSlotData[]>(slots);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    slotsRef.current = slots;
+  }, [slots]);
 
   // Initialize worker pool
   useEffect(() => {
@@ -63,6 +72,11 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
   useEffect(() => {
     onImagesChange?.(slots);
   }, [slots, onImagesChange]);
+
+  // Notify parent of region config changes
+  useEffect(() => {
+    onRegionConfigChange?.({ rect: regionRect, mode: regionMode });
+  }, [regionRect, regionMode, onRegionConfigChange]);
 
   // Calculate unified size from loaded images
   const calculateUnifiedSize = useCallback((currentSlots: ImageSlotData[]) => {
@@ -88,14 +102,19 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
     const histogramData: Record<string, FFTHistogramResult['histogram']> = {};
 
     try {
-      // Process all components
-      for (const component of components) {
-        const jobId = `fft-${slotId}-${component}-${Date.now()}`;
-        const result = await workerPoolRef.current.enqueue({
-          id: jobId,
-          payload: { grayscale, width, height, component },
-        }) as FFTHistogramResult;
+      // Process all components in parallel for better performance
+      const results = await Promise.all(
+        components.map(async (component) => {
+          const jobId = `fft-${slotId}-${component}-${Date.now()}-${Math.random()}`;
+          const result = await workerPoolRef.current!.enqueue({
+            id: jobId,
+            payload: { grayscale, width, height, component },
+          }) as FFTHistogramResult;
+          return { component, result };
+        })
+      );
 
+      for (const { component, result } of results) {
         componentData[component] = result.componentData;
         histogramData[component] = result.histogram;
       }
@@ -131,10 +150,19 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
 
     try {
       const processor = imageProcessorRef.current;
-      const { imageData, grayscale } = await processor.loadImageFile(file);
+      const { imageData, grayscale, wasDownscaled, originalSize } = await processor.loadImageFile(file);
       
-      // Get current loaded images to determine unified size
-      const currentSlots = slots.map(s => 
+      // Log downscaling info for user awareness
+      if (wasDownscaled) {
+        console.info(
+          `🖼️ Image "${file.name}" was automatically downscaled from ` +
+          `${originalSize.width}×${originalSize.height} to ${imageData.width}×${imageData.height} ` +
+          `to prevent memory exhaustion during FFT processing.`
+        );
+      }
+      
+      // Use ref to get current slots without stale closure
+      const currentSlots = slotsRef.current.map(s => 
         s.id === slotId 
           ? { ...s, rawImageData: imageData, grayscale, width: imageData.width, height: imageData.height }
           : s
@@ -159,7 +187,7 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
         s.id === slotId 
           ? {
               ...s,
-              label: file.name.replace(/\.[^/.]+$/, ''),
+              label: file.name.replace(/\.[^/.]+$/, '') + (wasDownscaled ? ' (scaled)' : ''),
               rawImageData: imageData,
               grayscale: finalGrayscale,
               width: finalWidth,
@@ -201,7 +229,7 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
     } finally {
       setLoadingSlots(prev => ({ ...prev, [slotId]: false }));
     }
-  }, [slots, calculateUnifiedSize, processFFT]);
+  }, [calculateUnifiedSize, processFFT]);
 
   // Handle brightness/contrast change
   const handleBrightnessContrastChange = useCallback((slotId: string, brightness: number, contrast: number) => {
@@ -221,6 +249,18 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
     ));
   }, []);
 
+  // Handle region size change from slider
+  const handleRegionSizeChange = useCallback((size: number) => {
+    // Keep centered
+    const half = size / 2;
+    setRegionRect({
+      x: 50 - half,
+      y: 50 - half,
+      width: size,
+      height: size,
+    });
+  }, []);
+
   return (
     <div className="source-image-grid-enhanced">
       {/* Header with info badge */}
@@ -228,8 +268,7 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
         <h3 className="grid-title">Source Image Grid</h3>
         {normalizedSize && (
           <div className="size-badge">
-            <span className="badge-icon">📐</span>
-            <span>Normalized: {normalizedSize.width}×{normalizedSize.height}</span>
+            <span>{normalizedSize.width}×{normalizedSize.height}</span>
           </div>
         )}
       </div>
@@ -244,17 +283,45 @@ export const SourceImageGridEnhanced: React.FC<SourceImageGridEnhancedProps> = (
             onImageLoad={handleImageLoad}
             onBrightnessContrastChange={handleBrightnessContrastChange}
             onComponentChange={handleComponentChange}
-            regionSelection={unifiedRegion}
-            onRegionChange={onRegionChange}
+            regionRect={regionRect}
+            onRegionChange={setRegionRect}
             isLoading={loadingSlots[slot.id] ?? false}
           />
         ))}
       </div>
 
+      {/* Region Controls */}
+      <div className="region-controls">
+        <span className="region-label">Region Size:</span>
+        <input
+          type="range"
+          className="region-slider"
+          min={10}
+          max={90}
+          value={regionRect.width}
+          onChange={(e) => handleRegionSizeChange(Number(e.target.value))}
+        />
+        <span className="region-value">{regionRect.width.toFixed(0)}%</span>
+        <div className="region-toggle">
+          <button
+            className={`toggle-btn ${regionMode === 'inner' ? 'active' : ''}`}
+            onClick={() => setRegionMode('inner')}
+          >
+            Inner
+          </button>
+          <button
+            className={`toggle-btn ${regionMode === 'outer' ? 'active' : ''}`}
+            onClick={() => setRegionMode('outer')}
+          >
+            Outer
+          </button>
+        </div>
+      </div>
+
       {/* Instructions footer */}
       <div className="grid-footer">
         <span className="instruction">
-          <kbd>Double-click</kbd> to load • <kbd>Drag</kbd> brightness/contrast
+          <kbd>Double-click</kbd> to load • <kbd>Drag</kbd> brightness/contrast • <kbd>Drag region</kbd> to move
         </span>
       </div>
     </div>
