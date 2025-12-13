@@ -11,6 +11,7 @@ import { SteeringJoystick } from '@/components/SteeringJoystick'
 import { OutputViewport } from '@/components/OutputViewport'
 import { MeasurementsRibbon, createDefaultMeasurements } from '@/components/MeasurementsRibbon'
 import { StatusBar } from '@/components/StatusBar'
+import { SourceImageGridEnhanced } from '@/components/SourceImageGridEnhanced'
 import { useWorkerSupport } from '@/hooks/useWorkerSupport'
 import { useGlobalStore } from '@/state/globalStore'
 import { usePersistence, exportStateAsJson, importStateFromJson } from '@/state/persistence'
@@ -161,6 +162,45 @@ export function AppShell() {
       }
     },
     [pushToast, safeMode.active, setFiles, setImageData, setNormalizedSize],
+  )
+
+  // Handler for SourceImageGridEnhanced
+  const handleGridImagesChange = useCallback(
+    (slots: Array<{ id: string; grayscale: Uint8ClampedArray | null; width: number; height: number; label: string }>) => {
+      // Update files metadata
+      const metas = slots
+        .filter((s) => s.grayscale !== null)
+        .map((s) => ({
+          id: s.id as FileSlot,
+          name: s.label || `Image ${s.id}`,
+          size: s.grayscale?.length ?? 0,
+          type: 'image/raw',
+          lastModified: Date.now(),
+        }))
+      setFiles(metas)
+
+      // Update image data in global store
+      slots.forEach((slot) => {
+        if (slot.grayscale) {
+          setImageData(slot.id as FileSlot, {
+            width: slot.width,
+            height: slot.height,
+            pixels: slot.grayscale,
+          })
+        } else {
+          setImageData(slot.id as FileSlot, null)
+        }
+      })
+
+      // Update normalized size
+      const loadedSlots = slots.filter((s) => s.grayscale !== null)
+      if (loadedSlots.length > 0) {
+        const minWidth = Math.min(...loadedSlots.map((s) => s.width))
+        const minHeight = Math.min(...loadedSlots.map((s) => s.height))
+        setNormalizedSize({ width: minWidth, height: minHeight })
+      }
+    },
+    [setFiles, setImageData, setNormalizedSize],
   )
 
   useEffect(() => {
@@ -439,7 +479,11 @@ export function AppShell() {
             </div>
           </div>
           <div className="panel-content">
-            <UploadPanel onFilesAccepted={handleFilesAccepted} />
+            {showSourceGrid ? (
+              <SourceImageGridEnhanced onImagesChange={handleGridImagesChange} />
+            ) : (
+              <UploadPanel onFilesAccepted={handleFilesAccepted} />
+            )}
             <MixerControls />
             <RegionControls />
             
