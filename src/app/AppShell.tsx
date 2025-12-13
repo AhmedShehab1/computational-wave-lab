@@ -501,7 +501,11 @@ export function AppShell() {
                 </div>
                 <OutputViewport
                   title="Output 1"
-                  image={outputImages[1]}
+                  image={
+                    compareSelection[1]
+                      ? snapshots.find((s) => s.id === compareSelection[1])?.image ?? outputImages[1]
+                      : outputImages[1]
+                  }
                   loading={outputStatus[1] === 'mixing'}
                   showSpectrum={showSpectrum}
                   spectrumData={spectrum[1] ?? undefined}
@@ -547,10 +551,26 @@ export function AppShell() {
                               if (!el) return
                               const ctx = el.getContext('2d')
                               if (!ctx) return
-                              const imgData = new ImageData(new Uint8ClampedArray(snap.image.pixels), snap.image.width, snap.image.height)
+                              // Convert grayscale to RGBA if needed
+                              const { pixels, width, height } = snap.image
+                              let rgbaPixels: Uint8ClampedArray<ArrayBuffer>
+                              if (pixels.length === width * height) {
+                                rgbaPixels = new Uint8ClampedArray(width * height * 4)
+                                for (let i = 0; i < pixels.length; i++) {
+                                  const v = pixels[i]
+                                  rgbaPixels[i * 4] = v
+                                  rgbaPixels[i * 4 + 1] = v
+                                  rgbaPixels[i * 4 + 2] = v
+                                  rgbaPixels[i * 4 + 3] = 255
+                                }
+                              } else {
+                                rgbaPixels = new Uint8ClampedArray(pixels.length)
+                                rgbaPixels.set(pixels)
+                              }
+                              const imgData = new ImageData(rgbaPixels, width, height)
                               const off = document.createElement('canvas')
-                              off.width = snap.image.width
-                              off.height = snap.image.height
+                              off.width = width
+                              off.height = height
                               const octx = off.getContext('2d')
                               if (!octx) return
                               octx.putImageData(imgData, 0, 0)
@@ -576,7 +596,11 @@ export function AppShell() {
                 </div>
                 <OutputViewport
                   title="Output 2"
-                  image={outputImages[2]}
+                  image={
+                    compareSelection[2]
+                      ? snapshots.find((s) => s.id === compareSelection[2])?.image ?? outputImages[2]
+                      : outputImages[2]
+                  }
                   loading={outputStatus[2] === 'mixing'}
                   showSpectrum={showSpectrum}
                   spectrumData={spectrum[2] ?? undefined}
