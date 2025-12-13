@@ -3,6 +3,11 @@
  * Handles grayscale conversion, resizing, and FFT data extraction
  */
 
+import { IMAGE_LIMITS } from '@/config/constants';
+
+// Re-export for convenience
+export const MAX_IMAGE_DIMENSION = IMAGE_LIMITS.maxDimension;
+
 export interface ProcessedImageData {
   grayscale: Uint8ClampedArray;
   width: number;
@@ -35,10 +40,10 @@ export class ImageProcessor {
   constructor() {
     if (typeof OffscreenCanvas !== 'undefined') {
       this.canvas = new OffscreenCanvas(1, 1);
-      this.ctx = this.canvas.getContext('2d')!;
+      this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
     } else {
       this.canvas = document.createElement('canvas');
-      this.ctx = this.canvas.getContext('2d')!;
+      this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
     }
   }
 
@@ -109,31 +114,72 @@ export class ImageProcessor {
   }
 
   /**
-   * Load an image from a File and convert to grayscale ImageData
+   * Load an image from a File with pre-emptive downscaling to prevent memory exhaustion.
+   * Uses createImageBitmap for efficient browser-native resizing before any processing.
+   * 
+   * Memory calculation for a 3024x4032 image:
+   * - 12.2M pixels × 2 (Real/Imag) × 8 bytes (Float64) ≈ 200MB per image
+   * - With 4 images + FFT operations = potential gigabytes of RAM
+   * 
+   * Solution: Enforce soft cap (e.g., 1024px max dimension) before any processing.
    */
-  async loadImageFile(file: File): Promise<{ imageData: ImageData; grayscale: Uint8ClampedArray }> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const img = new Image();
-          img.onload = () => {
-            this.canvas.width = img.width;
-            this.canvas.height = img.height;
-            this.ctx.drawImage(img, 0, 0);
-            const imageData = this.ctx.getImageData(0, 0, img.width, img.height);
-            const grayscale = ImageProcessor.toGrayscale(imageData.data, img.width, img.height);
-            resolve({ imageData, grayscale });
-          };
-          img.onerror = () => reject(new Error('Failed to load image'));
-          img.src = e.target?.result as string;
-        } catch (err) {
-          reject(err);
-        }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
+  async loadImageFile(
+    file: File,
+    maxDimension: number = MAX_IMAGE_DIMENSION
+  ): Promise<{ imageData: ImageData; grayscale: Uint8ClampedArray; wasDownscaled: boolean; originalSize: { width: number; height: number } }> {
+    // Use createImageBitmap for efficient, browser-native image loading and resizing
+    const originalBitmap = await createImageBitmap(file);
+    const originalWidth = originalBitmap.width;
+    const originalHeight = originalBitmap.height;
+    
+    let bitmap = originalBitmap;
+    let wasDownscaled = false;
+    
+    // Check if downscaling is needed
+    if (originalWidth > maxDimension || originalHeight > maxDimension) {
+      // Calculate scale factor to fit within maxDimension while preserving aspect ratio
+      const scale = maxDimension / Math.max(originalWidth, originalHeight);
+      const targetWidth = Math.round(originalWidth * scale);
+      const targetHeight = Math.round(originalHeight * scale);
+      
+      // Use createImageBitmap with resizeWidth/resizeHeight for efficient downscaling
+      // This happens at the browser level, before we allocate any large typed arrays
+      bitmap = await createImageBitmap(file, {
+        resizeWidth: targetWidth,
+        resizeHeight: targetHeight,
+        resizeQuality: 'high', // 'pixelated', 'low', 'medium', 'high'
+      });
+      
+      wasDownscaled = true;
+      console.log(
+        `Image downscaled: ${originalWidth}×${originalHeight} → ${targetWidth}×${targetHeight} ` +
+        `(${((originalWidth * originalHeight) / 1e6).toFixed(1)}MP → ${((targetWidth * targetHeight) / 1e6).toFixed(2)}MP)`
+      );
+      
+      // Release the original bitmap to free memory immediately
+      originalBitmap.close();
+    }
+    
+    // Draw bitmap to canvas to get ImageData
+    const width = bitmap.width;
+    const height = bitmap.height;
+    this.canvas.width = width;
+    this.canvas.height = height;
+    this.ctx.drawImage(bitmap, 0, 0);
+    
+    // Get image data and convert to grayscale
+    const imageData = this.ctx.getImageData(0, 0, width, height);
+    const grayscale = ImageProcessor.toGrayscale(imageData.data, width, height);
+    
+    // Release bitmap
+    bitmap.close();
+    
+    return {
+      imageData,
+      grayscale,
+      wasDownscaled,
+      originalSize: { width: originalWidth, height: originalHeight },
+    };
   }
 
   /**
