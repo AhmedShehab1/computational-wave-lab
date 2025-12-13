@@ -4,6 +4,13 @@ import type { FFTHistogramResult } from '@/workers/fft-histogram.worker';
 
 export type FTComponentView = 'magnitude' | 'phase' | 'real' | 'imag';
 
+export interface RegionRect {
+  x: number;      // percentage 0-100
+  y: number;      // percentage 0-100  
+  width: number;  // percentage 0-100
+  height: number; // percentage 0-100
+}
+
 export interface ImageSlotData {
   id: string;
   label: string;
@@ -34,13 +41,18 @@ interface SourceImageCardProps {
   onImageLoad: (slotId: string, file: File) => void;
   onBrightnessContrastChange: (slotId: string, brightness: number, contrast: number) => void;
   onComponentChange: (slotId: string, component: FTComponentView) => void;
-  regionSelection?: { x: number; y: number; width: number; height: number } | null;
-  onRegionChange?: (region: { x: number; y: number; width: number; height: number }) => void;
+  regionRect?: RegionRect | null;
+  onRegionChange?: (region: RegionRect) => void;
   isLoading?: boolean;
 }
 
 const SLOT_LABELS = ['Input A (FFT)', 'Input B (Wavelet)', 'Reference C (STFT)', 'Noise D (Gaussian)'];
-const COMPONENT_TABS: FTComponentView[] = ['magnitude', 'phase', 'real', 'imag'];
+const COMPONENT_TABS: { key: FTComponentView; label: string }[] = [
+  { key: 'magnitude', label: 'Magnitude' },
+  { key: 'phase', label: 'Phase' },
+  { key: 'real', label: 'Real' },
+  { key: 'imag', label: 'Imag' },
+];
 
 export const SourceImageCard: React.FC<SourceImageCardProps> = ({
   slot,
@@ -48,17 +60,21 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
   onImageLoad,
   onBrightnessContrastChange,
   onComponentChange,
-  regionSelection,
+  regionRect,
+  onRegionChange,
   isLoading = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const sourceCanvasRef = useRef<HTMLCanvasElement>(null);
-  const ftCanvasRef = useRef<HTMLCanvasElement>(null);
-  const histogramCanvasRef = useRef<HTMLCanvasElement>(null);
+  const imageCanvasRef = useRef<HTMLCanvasElement>(null);
+  const chartCanvasRef = useRef<HTMLCanvasElement>(null);
+  const thumbnailCanvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0, brightness: 0, contrast: 1 });
-  const [isHovering, setIsHovering] = useState(false);
+  const [isResizingRegion, setIsResizingRegion] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+  const [regionDragStart, setRegionDragStart] = useState<{ x: number; y: number; rect: RegionRect } | null>(null);
 
   // Handle double-click to trigger file picker
   const handleDoubleClick = useCallback(() => {
@@ -71,7 +87,6 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     if (file && file.type.startsWith('image/')) {
       onImageLoad(slot.id, file);
     }
-    // Reset input so same file can be selected again
     e.target.value = '';
   }, [slot.id, onImageLoad]);
 
@@ -90,9 +105,36 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     }
   }, [slot.id, onImageLoad]);
 
-  // Handle brightness/contrast drag
+  // Handle brightness/contrast drag on image
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !slot.grayscale) return;
+    
+    // Check if clicking on region handles
+    if (regionRect && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const relX = ((e.clientX - rect.left) / rect.width) * 100;
+      const relY = ((e.clientY - rect.top) / rect.height) * 100;
+      
+      const handleSize = 3; // percentage
+      const { x, y, width, height } = regionRect;
+      
+      // Check corners for resize
+      if (Math.abs(relX - (x + width)) < handleSize && Math.abs(relY - (y + height)) < handleSize) {
+        setIsResizingRegion(true);
+        setResizeHandle('se');
+        setRegionDragStart({ x: e.clientX, y: e.clientY, rect: { ...regionRect } });
+        return;
+      }
+      
+      // Check if inside region for move
+      if (relX >= x && relX <= x + width && relY >= y && relY <= y + height) {
+        setIsResizingRegion(true);
+        setResizeHandle('move');
+        setRegionDragStart({ x: e.clientX, y: e.clientY, rect: { ...regionRect } });
+        return;
+      }
+    }
+    
     setIsDragging(true);
     setDragStart({
       x: e.clientX,
@@ -100,71 +142,55 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
       brightness: slot.brightness,
       contrast: slot.contrast,
     });
-  }, [slot.brightness, slot.contrast]);
+  }, [slot.grayscale, slot.brightness, slot.contrast, regionRect]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isResizingRegion && regionDragStart && onRegionChange && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaXPct = ((e.clientX - regionDragStart.x) / rect.width) * 100;
+      const deltaYPct = ((e.clientY - regionDragStart.y) / rect.height) * 100;
+      
+      if (resizeHandle === 'se') {
+        // Resize from bottom-right
+        onRegionChange({
+          ...regionDragStart.rect,
+          width: Math.max(10, Math.min(100 - regionDragStart.rect.x, regionDragStart.rect.width + deltaXPct)),
+          height: Math.max(10, Math.min(100 - regionDragStart.rect.y, regionDragStart.rect.height + deltaYPct)),
+        });
+      } else if (resizeHandle === 'move') {
+        // Move the region
+        const newX = Math.max(0, Math.min(100 - regionDragStart.rect.width, regionDragStart.rect.x + deltaXPct));
+        const newY = Math.max(0, Math.min(100 - regionDragStart.rect.height, regionDragStart.rect.y + deltaYPct));
+        onRegionChange({
+          ...regionDragStart.rect,
+          x: newX,
+          y: newY,
+        });
+      }
+      return;
+    }
+    
     if (!isDragging) return;
     
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
     
-    // Horizontal drag = contrast (scaled to reasonable range)
     const newContrast = Math.max(0.01, Math.min(3, dragStart.contrast + deltaX * 0.01));
-    // Vertical drag = brightness (inverted - up increases brightness)
     const newBrightness = Math.max(-100, Math.min(100, dragStart.brightness - deltaY * 0.5));
     
     onBrightnessContrastChange(slot.id, newBrightness, newContrast);
-  }, [isDragging, dragStart, slot.id, onBrightnessContrastChange]);
+  }, [isDragging, isResizingRegion, dragStart, regionDragStart, resizeHandle, slot.id, onBrightnessContrastChange, onRegionChange]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
+    setIsResizingRegion(false);
+    setResizeHandle(null);
+    setRegionDragStart(null);
   }, []);
 
-  // Render source image with brightness/contrast
+  // Render source image with region overlay
   useEffect(() => {
-    const canvas = sourceCanvasRef.current;
-    if (!canvas || !slot.grayscale) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    canvas.width = slot.width;
-    canvas.height = slot.height;
-
-    // Apply brightness/contrast
-    const adjusted = ImageProcessor.applyBrightnessContrast(slot.grayscale, {
-      brightness: slot.brightness,
-      contrast: slot.contrast,
-    });
-
-    // Convert to ImageData
-    const imageData = ImageProcessor.grayscaleToImageData(adjusted, slot.width, slot.height);
-    ctx.putImageData(imageData, 0, 0);
-
-    // Draw region selection overlay if present
-    if (regionSelection) {
-      ctx.strokeStyle = 'rgba(77, 208, 225, 0.8)';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.strokeRect(
-        regionSelection.x,
-        regionSelection.y,
-        regionSelection.width,
-        regionSelection.height
-      );
-      ctx.fillStyle = 'rgba(77, 208, 225, 0.1)';
-      ctx.fillRect(
-        regionSelection.x,
-        regionSelection.y,
-        regionSelection.width,
-        regionSelection.height
-      );
-    }
-  }, [slot.grayscale, slot.width, slot.height, slot.brightness, slot.contrast, regionSelection]);
-
-  // Render FT component visualization
-  useEffect(() => {
-    const canvas = ftCanvasRef.current;
+    const canvas = imageCanvasRef.current;
     if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
@@ -175,76 +201,76 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     canvas.height = rect.height * window.devicePixelRatio;
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-    const width = rect.width;
-    const height = rect.height;
+    const w = rect.width;
+    const h = rect.height;
 
     // Dark background
     ctx.fillStyle = '#0a0c14';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, w, h);
 
-    const componentData = slot.fftData?.[slot.selectedComponent];
-    
-    if (componentData && slot.fftData) {
-      // Render actual FT component data
-      const imgWidth = slot.width;
-      const imgHeight = slot.height;
-      
-      // Create temporary canvas for the FFT data
+    if (slot.grayscale) {
+      // Apply brightness/contrast
+      const adjusted = ImageProcessor.applyBrightnessContrast(slot.grayscale, {
+        brightness: slot.brightness,
+        contrast: slot.contrast,
+      });
+
+      // Create temp canvas for image
       const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = imgWidth;
-      tempCanvas.height = imgHeight;
+      tempCanvas.width = slot.width;
+      tempCanvas.height = slot.height;
       const tempCtx = tempCanvas.getContext('2d');
       
       if (tempCtx) {
-        const imageData = ImageProcessor.grayscaleToImageData(componentData, imgWidth, imgHeight);
+        const imageData = ImageProcessor.grayscaleToImageData(adjusted, slot.width, slot.height);
         tempCtx.putImageData(imageData, 0, 0);
         
-        // Scale to fit
-        const scale = Math.min(width / imgWidth, height / imgHeight) * 0.9;
-        const offsetX = (width - imgWidth * scale) / 2;
-        const offsetY = (height - imgHeight * scale) / 2;
+        // Scale to fit with padding
+        const padding = 4;
+        const availW = w - padding * 2;
+        const availH = h - padding * 2;
+        const scale = Math.min(availW / slot.width, availH / slot.height);
+        const drawW = slot.width * scale;
+        const drawH = slot.height * scale;
+        const offsetX = (w - drawW) / 2;
+        const offsetY = (h - drawH) / 2;
         
-        ctx.drawImage(tempCanvas, offsetX, offsetY, imgWidth * scale, imgHeight * scale);
+        ctx.drawImage(tempCanvas, offsetX, offsetY, drawW, drawH);
+        
+        // Draw region selection rectangle
+        if (regionRect) {
+          const rx = offsetX + (regionRect.x / 100) * drawW;
+          const ry = offsetY + (regionRect.y / 100) * drawH;
+          const rw = (regionRect.width / 100) * drawW;
+          const rh = (regionRect.height / 100) * drawH;
+          
+          // Semi-transparent fill
+          ctx.fillStyle = 'rgba(77, 208, 225, 0.15)';
+          ctx.fillRect(rx, ry, rw, rh);
+          
+          // Border
+          ctx.strokeStyle = 'rgba(77, 208, 225, 0.7)';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(rx, ry, rw, rh);
+          
+          // Resize handle (bottom-right corner)
+          const handleSize = 6;
+          ctx.fillStyle = 'rgba(77, 208, 225, 0.9)';
+          ctx.fillRect(rx + rw - handleSize, ry + rh - handleSize, handleSize, handleSize);
+        }
       }
     } else {
-      // Placeholder visualization - frequency domain placeholder
-      const centerX = width / 2;
-      const centerY = height / 2;
-      
-      // Draw frequency rings
-      ctx.strokeStyle = 'rgba(77, 208, 225, 0.15)';
-      ctx.lineWidth = 0.5;
-      for (let r = 15; r < Math.min(width, height) / 2; r += 15) {
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, r, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      
-      // Cross lines
-      ctx.beginPath();
-      ctx.moveTo(0, centerY);
-      ctx.lineTo(width, centerY);
-      ctx.moveTo(centerX, 0);
-      ctx.lineTo(centerX, height);
-      ctx.stroke();
-      
-      // Center dot
-      ctx.fillStyle = '#4dd0e1';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Label
-      ctx.fillStyle = 'rgba(107, 122, 148, 0.6)';
-      ctx.font = '10px "JetBrains Mono", monospace';
+      // Empty state placeholder
+      ctx.fillStyle = 'rgba(77, 208, 225, 0.1)';
+      ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText('Waiting for FFT...', centerX, height - 10);
+      ctx.fillText('Double-click to load', w / 2, h / 2);
     }
-  }, [slot.fftData, slot.selectedComponent, slot.width, slot.height]);
+  }, [slot.grayscale, slot.width, slot.height, slot.brightness, slot.contrast, regionRect]);
 
-  // Render histogram
+  // Render chart/histogram
   useEffect(() => {
-    const canvas = histogramCanvasRef.current;
+    const canvas = chartCanvasRef.current;
     if (!canvas) return;
     
     const ctx = canvas.getContext('2d');
@@ -255,86 +281,131 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     canvas.height = rect.height * window.devicePixelRatio;
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-    const width = rect.width;
-    const height = rect.height;
+    const w = rect.width;
+    const h = rect.height;
 
-    // Dark background with subtle grid
-    ctx.fillStyle = '#0b0d15';
-    ctx.fillRect(0, 0, width, height);
-    
-    // Grid lines
-    ctx.strokeStyle = 'rgba(77, 208, 225, 0.05)';
-    ctx.lineWidth = 0.5;
-    for (let y = 0; y < height; y += 10) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
-    }
+    // Background
+    ctx.fillStyle = '#0a0c14';
+    ctx.fillRect(0, 0, w, h);
 
     const histogram = slot.fftData?.histograms?.[slot.selectedComponent];
     
     if (histogram && histogram.bins.length > 0) {
       const bins = histogram.bins;
-      const barWidth = width / bins.length;
+      const barWidth = w / bins.length;
+      const maxBin = Math.max(...bins);
       
-      // Draw histogram bars with gradient
-      const gradient = ctx.createLinearGradient(0, height, 0, 0);
-      gradient.addColorStop(0, 'rgba(77, 208, 225, 0.3)');
-      gradient.addColorStop(1, 'rgba(77, 208, 225, 0.8)');
-      ctx.fillStyle = gradient;
+      // Draw filled area
+      ctx.beginPath();
+      ctx.moveTo(0, h);
       
       for (let i = 0; i < bins.length; i++) {
-        const barHeight = bins[i] * height * 0.9;
-        ctx.fillRect(i * barWidth, height - barHeight, barWidth - 0.5, barHeight);
+        const x = i * barWidth;
+        const barH = maxBin > 0 ? (bins[i] / maxBin) * h * 0.85 : 0;
+        ctx.lineTo(x, h - barH);
       }
+      ctx.lineTo(w, h);
+      ctx.closePath();
       
-      // Draw envelope line
-      ctx.strokeStyle = '#4dd0e1';
-      ctx.lineWidth = 1.5;
+      // Gradient fill
+      const gradient = ctx.createLinearGradient(0, h, 0, 0);
+      gradient.addColorStop(0, 'rgba(77, 208, 225, 0.05)');
+      gradient.addColorStop(1, 'rgba(77, 208, 225, 0.25)');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      
+      // Draw line on top
       ctx.beginPath();
       for (let i = 0; i < bins.length; i++) {
         const x = i * barWidth + barWidth / 2;
-        const y = height - bins[i] * height * 0.9;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const barH = maxBin > 0 ? (bins[i] / maxBin) * h * 0.85 : 0;
+        if (i === 0) ctx.moveTo(x, h - barH);
+        else ctx.lineTo(x, h - barH);
       }
+      ctx.strokeStyle = 'rgba(77, 208, 225, 0.6)';
+      ctx.lineWidth = 1;
       ctx.stroke();
       
-      // Stats overlay
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      ctx.fillRect(4, 4, 80, 36);
-      ctx.fillStyle = '#8892a6';
-      ctx.font = '9px "JetBrains Mono", monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`μ: ${histogram.mean.toFixed(1)}`, 8, 16);
-      ctx.fillText(`σ: ${histogram.stdDev.toFixed(1)}`, 8, 28);
-      ctx.fillText(`[${histogram.min.toFixed(0)}, ${histogram.max.toFixed(0)}]`, 8, 40);
+      // Draw region overlay on chart too
+      if (regionRect) {
+        const rx = (regionRect.x / 100) * w;
+        const rw = (regionRect.width / 100) * w;
+        
+        ctx.fillStyle = 'rgba(77, 208, 225, 0.12)';
+        ctx.fillRect(rx, 0, rw, h);
+        
+        ctx.strokeStyle = 'rgba(77, 208, 225, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(rx, 0, rw, h);
+        ctx.setLineDash([]);
+      }
     } else {
-      // Placeholder waveform
-      ctx.strokeStyle = 'rgba(77, 208, 225, 0.3)';
-      ctx.lineWidth = 1;
+      // Placeholder wave
       ctx.beginPath();
-      ctx.moveTo(0, height / 2);
-      for (let x = 0; x < width; x++) {
-        const y = height / 2 + Math.sin(x * 0.08 + slotIndex * 1.5) * (height * 0.25);
+      ctx.moveTo(0, h / 2);
+      for (let x = 0; x < w; x++) {
+        const y = h / 2 + Math.sin(x * 0.05 + slotIndex) * (h * 0.2) * Math.exp(-x / (w * 0.7));
         ctx.lineTo(x, y);
       }
+      ctx.strokeStyle = 'rgba(77, 208, 225, 0.2)';
+      ctx.lineWidth = 1;
       ctx.stroke();
     }
-  }, [slot.fftData, slot.selectedComponent, slotIndex]);
+  }, [slot.fftData, slot.selectedComponent, slotIndex, regionRect]);
 
-  // Computed display label
+  // Render thumbnail histogram in footer
+  useEffect(() => {
+    const canvas = thumbnailCanvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+    const w = rect.width;
+    const h = rect.height;
+
+    ctx.fillStyle = '#0a0c14';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw a simple grayscale histogram from the image
+    if (slot.grayscale) {
+      const bins = new Array(32).fill(0);
+      for (let i = 0; i < slot.grayscale.length; i++) {
+        const bin = Math.floor(slot.grayscale[i] / 8);
+        bins[Math.min(bin, 31)]++;
+      }
+      const maxBin = Math.max(...bins);
+      
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      for (let i = 0; i < bins.length; i++) {
+        const x = (i / bins.length) * w;
+        const bh = maxBin > 0 ? (bins[i] / maxBin) * h * 0.8 : 0;
+        ctx.lineTo(x, h - bh);
+      }
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      
+      const gradient = ctx.createLinearGradient(0, h, 0, 0);
+      gradient.addColorStop(0, 'rgba(77, 208, 225, 0.1)');
+      gradient.addColorStop(1, 'rgba(77, 208, 225, 0.4)');
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+  }, [slot.grayscale]);
+
   const displayLabel = useMemo(() => {
     return slot.label || SLOT_LABELS[slotIndex] || `Slot ${slotIndex + 1}`;
   }, [slot.label, slotIndex]);
 
   return (
-    <div 
-      className={`source-image-card ${slot.grayscale ? 'has-image' : 'empty'} ${isLoading ? 'loading' : ''}`}
-      onMouseEnter={() => setIsHovering(true)}
-      onMouseLeave={() => { setIsHovering(false); setIsDragging(false); }}
-    >
+    <div className={`source-card ${slot.grayscale ? 'loaded' : ''} ${isLoading ? 'loading' : ''}`}>
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -344,26 +415,12 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
         onChange={handleFileChange}
       />
       
-      {/* Component tabs */}
-      <div className="component-tabs" role="tablist">
-        {COMPONENT_TABS.map((comp) => (
-          <button
-            key={comp}
-            className={`component-tab ${slot.selectedComponent === comp ? 'active' : ''}`}
-            onClick={() => onComponentChange(slot.id, comp)}
-            role="tab"
-            aria-selected={slot.selectedComponent === comp}
-          >
-            {comp.charAt(0).toUpperCase() + comp.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Main dual-pane content */}
-      <div className="card-content">
-        {/* Left pane - Source image */}
+      {/* Main content row */}
+      <div className="card-row">
+        {/* Left: Image viewport */}
         <div 
-          className={`source-pane ${isDragging ? 'dragging' : ''}`}
+          ref={containerRef}
+          className={`image-viewport ${isDragging ? 'dragging' : ''}`}
           onDoubleClick={handleDoubleClick}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
@@ -371,51 +428,38 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          title="Double-click to load image. Drag to adjust brightness (↕) / contrast (↔)"
         >
-          {slot.grayscale ? (
-            <canvas ref={sourceCanvasRef} className="source-canvas" />
-          ) : (
-            <div className="placeholder">
-              <div className="placeholder-icon">📷</div>
-              <div className="placeholder-text">Double-click or drop image</div>
-            </div>
-          )}
-          
-          {/* Brightness/Contrast indicator */}
-          {isHovering && slot.grayscale && (
-            <div className="bc-indicator">
-              <span>B: {slot.brightness.toFixed(0)}</span>
-              <span>C: {slot.contrast.toFixed(2)}</span>
-            </div>
-          )}
-          
+          <canvas ref={imageCanvasRef} className="viewport-canvas" />
           {isLoading && (
-            <div className="loading-overlay">
+            <div className="loading-spinner">
               <div className="spinner" />
-              <span>Processing...</span>
             </div>
           )}
         </div>
-
-        {/* Right pane - FT visualization */}
-        <div className="ft-pane">
-          <canvas ref={ftCanvasRef} className="ft-canvas" />
+        
+        {/* Right: Chart with tabs */}
+        <div className="chart-panel">
+          <div className="chart-tabs">
+            {COMPONENT_TABS.map(({ key, label }) => (
+              <button
+                key={key}
+                className={`tab ${slot.selectedComponent === key ? 'active' : ''}`}
+                onClick={() => onComponentChange(slot.id, key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="chart-area">
+            <canvas ref={chartCanvasRef} className="chart-canvas" />
+          </div>
         </div>
       </div>
-
-      {/* Histogram strip */}
-      <div className="histogram-strip">
-        <canvas ref={histogramCanvasRef} className="histogram-canvas" />
-      </div>
-
-      {/* Label bar */}
-      <div className="card-label">
-        <span className="slot-id">{['A', 'B', 'C', 'D'][slotIndex]}</span>
-        <span className="label-text">{displayLabel}</span>
-        {slot.grayscale && (
-          <span className="dimensions">{slot.width}×{slot.height}</span>
-        )}
+      
+      {/* Footer label */}
+      <div className="card-footer">
+        <span className="label">{displayLabel}</span>
+        <canvas ref={thumbnailCanvasRef} className="thumbnail-histogram" />
       </div>
     </div>
   );
