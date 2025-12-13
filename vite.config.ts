@@ -2,7 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -10,11 +9,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, 'src'),
     },
   },
-  // To enable wasm FFT in browser, COOP/COEP headers are required.
-  // server: {
-  //   headers: {
-  //     'Cross-Origin-Opener-Policy': 'same-origin',
-  //     'Cross-Origin-Embedder-Policy': 'require-corp',
-  //   },
-  // },
+  server: {
+    headers: {
+      // 1. Isolate the window
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      // 2. Require all resources to opt-in
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'same-origin',
+    },
+  },
+  worker: {
+    format: 'es',
+  },
 })
