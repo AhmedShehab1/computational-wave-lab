@@ -1,0 +1,11 @@
+# netlify.toml
+
+[[headers]]
+  # Define which paths this rule applies to
+  for = "/*"
+  
+  [headers.values]
+    # The Critical Security Headers for SharedArrayBuffer / FFT
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+    Cross-Origin-Resource-Policy = "same-origin"
