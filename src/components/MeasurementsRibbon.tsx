@@ -436,6 +436,7 @@ const MeasurementCard: React.FC<MeasurementCardProps> = ({
 };
 
 // Default measurements for beamforming
+// eslint-disable-next-line react-refresh/only-export-components
 export const createDefaultMeasurements = (
   snr: number,
   directivity: number,

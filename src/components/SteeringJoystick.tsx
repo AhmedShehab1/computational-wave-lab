@@ -179,6 +179,7 @@ export const SteeringJoystick = ({
 }
 
 // Hook to manage joystick visibility
+// eslint-disable-next-line react-refresh/only-export-components
 export const useSteeringJoystick = () => {
   const [visible, setVisible] = useState(false)
   

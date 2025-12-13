@@ -322,7 +322,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
 
   }, [polarData, steerAngle, steerRadius]);
 
-  const handleInteraction = (clientX: number, clientY: number) => {
+  const handleInteraction = useCallback((clientX: number, clientY: number) => {
     const container = containerRef.current;
     if (!container) return;
 
@@ -337,7 +337,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
     if (angle < 0) angle += 360;
 
     onSteeringChange(Math.round(angle), Number(radius.toFixed(2)));
-  };
+  }, [onSteeringChange]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -359,7 +359,7 @@ const InteractiveCanvas: React.FC<InteractiveCanvasProps> = ({
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging]);
+  }, [isDragging, handleInteraction]);
 
   // Initialize canvas size
   useEffect(() => {

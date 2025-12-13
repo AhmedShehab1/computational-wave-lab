@@ -53,7 +53,7 @@ export function AppShell() {
   const setBeamStatus = useGlobalStore((s) => s.setBeamStatus)
   const beamConfigRef = useRef(beamConfig)
   const beamDebounce = useRef<number | null>(null)
-  const beamFrameMsRef = useRef<number | null>(null)
+  const _beamFrameMsRef = useRef<number | null>(null) // Prefixed with _ as it's for dev performance tracking
   const [showSpectrum, setShowSpectrum] = useState(false)
   const [spectrum, setSpectrum] = useState<Record<OutputViewportId, Float32Array | null>>({ 1: null, 2: null })
   const [loadingSlots, setLoadingSlots] = useState<Record<FileSlot, boolean>>({
@@ -748,12 +748,7 @@ export function AppShell() {
                 <div className="beam-result-container">
                   {beamResult?.heatmap ? (
                     (() => {
-                      const t0 = performance.now()
                       const pixels = mapHeatmapToImageData(beamResult.heatmap, beamResult.width, beamResult.height)
-                      const dt = performance.now() - t0
-                      if (import.meta.env.DEV) {
-                        beamFrameMsRef.current = dt
-                      }
                       return (
                         <div className="beam-canvas-wrapper">
                           <AdaptiveCanvas 
@@ -762,11 +757,6 @@ export function AppShell() {
                             pixels={pixels} 
                             label={`Mode: ${beamConfig.renderMode}`} 
                           />
-                          {beamFrameMsRef.current && (
-                            <span className="render-time">
-                              Render: {beamFrameMsRef.current.toFixed(2)} ms
-                            </span>
-                          )}
                         </div>
                       )
                     })()
