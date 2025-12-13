@@ -14,7 +14,22 @@ export const AdaptiveCanvas = ({ width, height, pixels, label }: AdaptiveCanvasP
     if (!pixels || !canvasRef.current) return
     const ctx = canvasRef.current.getContext('2d')
     if (!ctx) return
-    const imageData = new ImageData(pixels, width, height)
+    // Convert grayscale to RGBA if needed
+    let rgbaPixels: Uint8ClampedArray<ArrayBuffer>
+    if (pixels.length === width * height) {
+      rgbaPixels = new Uint8ClampedArray(width * height * 4)
+      for (let i = 0; i < pixels.length; i++) {
+        const v = pixels[i]
+        rgbaPixels[i * 4] = v
+        rgbaPixels[i * 4 + 1] = v
+        rgbaPixels[i * 4 + 2] = v
+        rgbaPixels[i * 4 + 3] = 255
+      }
+    } else {
+      rgbaPixels = new Uint8ClampedArray(pixels.length)
+      rgbaPixels.set(pixels)
+    }
+    const imageData = new ImageData(rgbaPixels, width, height)
     ctx.putImageData(imageData, 0, 0)
   }, [pixels, width, height])
 
