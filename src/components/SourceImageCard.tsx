@@ -1,6 +1,35 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { 
+  useRef, 
+  useEffect, 
+  useState, 
+  useCallback, 
+  useMemo, 
+  useDeferredValue,
+  startTransition 
+} from 'react';
 import { ImageProcessor } from '@/dsp/ImageProcessor';
 import type { FFTHistogramResult } from '@/workers/fft-histogram.worker';
+
+/**
+ * Convert brightness/contrast values to CSS filter values.
+ * This enables instant 60fps visual feedback during drag operations
+ * without re-computing the entire image data on each frame.
+ * 
+ * @param brightness - Range: -100 to 100 (0 = normal)
+ * @param contrast - Range: 0.01 to 3 (1 = normal)
+ * @returns CSS filter string
+ */
+function toCssFilter(brightness: number, contrast: number): string {
+  // CSS brightness: 0 = black, 1 = normal, 2 = 200%
+  // Our brightness range: -100 to 100, so map to 0-2
+  const cssBrightness = 1 + brightness / 100;
+  
+  // CSS contrast: 0 = gray, 1 = normal, 2 = 200%
+  // Our contrast is already roughly in the right range
+  const cssContrast = contrast;
+  
+  return `brightness(${cssBrightness}) contrast(${cssContrast})`;
+}
 
 export type FTComponentView = 'magnitude' | 'phase' | 'real' | 'imag';
 
@@ -75,6 +104,26 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
   const [isResizingRegion, setIsResizingRegion] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<string | null>(null);
   const [regionDragStart, setRegionDragStart] = useState<{ x: number; y: number; rect: RegionRect } | null>(null);
+
+  // =========================================================================
+  // PERFORMANCE OPTIMIZATION: Deferred values for heavy computations
+  // =========================================================================
+  
+  // Deferred brightness/contrast for histogram updates (non-urgent)
+  // The visual CSS filter updates immediately, but heavy histogram recomputation is deferred
+  const deferredBrightness = useDeferredValue(slot.brightness);
+  const deferredContrast = useDeferredValue(slot.contrast);
+  
+  // Deferred selected component to prevent blocking during tab switches
+  const deferredSelectedComponent = useDeferredValue(slot.selectedComponent);
+  
+  // Track if we're in a deferred state (visual indicator for pending updates)
+  const isPending = deferredBrightness !== slot.brightness || 
+                    deferredContrast !== slot.contrast ||
+                    deferredSelectedComponent !== slot.selectedComponent;
+
+  // CSS filter for instant brightness/contrast feedback (60fps)
+  const cssFilter = toCssFilter(slot.brightness, slot.contrast);
 
   // Handle double-click to trigger file picker
   const handleDoubleClick = useCallback(() => {
@@ -188,7 +237,11 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     setRegionDragStart(null);
   }, []);
 
-  // Render source image with region overlay
+  // =========================================================================
+  // CANVAS RENDERING: Base image (CSS filter handles B/C for 60fps)
+  // =========================================================================
+  
+  // Render base grayscale image - CSS filter on canvas handles brightness/contrast
   useEffect(() => {
     const canvas = imageCanvasRef.current;
     if (!canvas) return;
@@ -209,11 +262,9 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     ctx.fillRect(0, 0, w, h);
 
     if (slot.grayscale) {
-      // Apply brightness/contrast
-      const adjusted = ImageProcessor.applyBrightnessContrast(slot.grayscale, {
-        brightness: slot.brightness,
-        contrast: slot.contrast,
-      });
+      // OPTIMIZATION: Render BASE grayscale without brightness/contrast adjustment
+      // The CSS filter on the canvas element will handle B/C at 60fps
+      // This removes the expensive ImageProcessor.applyBrightnessContrast call from the render loop
 
       // Create temp canvas for image
       const tempCanvas = document.createElement('canvas');
@@ -222,7 +273,7 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
       const tempCtx = tempCanvas.getContext('2d');
       
       if (tempCtx) {
-        const imageData = ImageProcessor.grayscaleToImageData(adjusted, slot.width, slot.height);
+        const imageData = ImageProcessor.grayscaleToImageData(slot.grayscale, slot.width, slot.height);
         tempCtx.putImageData(imageData, 0, 0);
         
         // Scale to fit with padding
@@ -266,9 +317,13 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
       ctx.textAlign = 'center';
       ctx.fillText('Double-click to load', w / 2, h / 2);
     }
-  }, [slot.grayscale, slot.width, slot.height, slot.brightness, slot.contrast, regionRect]);
+  }, [slot.grayscale, slot.width, slot.height, regionRect]); // NOTE: brightness/contrast REMOVED - CSS filter handles them
 
-  // Render chart/histogram
+  // =========================================================================
+  // HISTOGRAM RENDERING: Uses DEFERRED values for non-blocking updates
+  // =========================================================================
+  
+  // Render chart/histogram using DEFERRED selected component
   useEffect(() => {
     const canvas = chartCanvasRef.current;
     if (!canvas) return;
@@ -288,7 +343,8 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     ctx.fillStyle = '#0a0c14';
     ctx.fillRect(0, 0, w, h);
 
-    const histogram = slot.fftData?.histograms?.[slot.selectedComponent];
+    // Use DEFERRED component to prevent blocking during tab switches
+    const histogram = slot.fftData?.histograms?.[deferredSelectedComponent];
     
     if (histogram && histogram.bins.length > 0) {
       const bins = histogram.bins;
@@ -352,7 +408,7 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-  }, [slot.fftData, slot.selectedComponent, slotIndex, regionRect]);
+  }, [slot.fftData, deferredSelectedComponent, slotIndex, regionRect]); // Uses deferred component
 
   // Render thumbnail histogram in footer
   useEffect(() => {
@@ -404,8 +460,23 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
     return slot.label || SLOT_LABELS[slotIndex] || `Slot ${slotIndex + 1}`;
   }, [slot.label, slotIndex]);
 
+  // =========================================================================
+  // TAB SWITCHING: Use startTransition for non-blocking component switch
+  // =========================================================================
+  
+  const handleTabClick = useCallback((component: FTComponentView) => {
+    // Wrap tab switching in startTransition to mark it as non-urgent
+    // This prevents the heavy histogram redraw from blocking the UI
+    startTransition(() => {
+      onComponentChange(slot.id, component);
+    });
+  }, [slot.id, onComponentChange]);
+
   return (
-    <div className={`source-card ${slot.grayscale ? 'loaded' : ''} ${isLoading ? 'loading' : ''}`}>
+    <div 
+      className={`source-card ${slot.grayscale ? 'loaded' : ''} ${isLoading ? 'loading' : ''}`}
+      data-pending={isPending ? 'true' : undefined}
+    >
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -428,8 +499,14 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          data-testid="image-viewport"
         >
-          <canvas ref={imageCanvasRef} className="viewport-canvas" />
+          {/* Canvas with CSS filter for instant B/C feedback */}
+          <canvas 
+            ref={imageCanvasRef} 
+            className="viewport-canvas" 
+            style={{ filter: cssFilter }}
+          />
           {isLoading && (
             <div className="loading-spinner">
               <div className="spinner" />
@@ -444,7 +521,8 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
               <button
                 key={key}
                 className={`tab ${slot.selectedComponent === key ? 'active' : ''}`}
-                onClick={() => onComponentChange(slot.id, key)}
+                onClick={() => handleTabClick(key)}
+                data-testid={`tab-${key}`}
               >
                 {label}
               </button>
@@ -452,6 +530,22 @@ export const SourceImageCard: React.FC<SourceImageCardProps> = ({
           </div>
           <div className="chart-area">
             <canvas ref={chartCanvasRef} className="chart-canvas" />
+            {/* Pending indicator for deferred updates */}
+            {isPending && (
+              <div 
+                className="pending-indicator"
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  right: 4,
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(77, 208, 225, 0.6)',
+                  animation: 'pulse 1s infinite',
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
