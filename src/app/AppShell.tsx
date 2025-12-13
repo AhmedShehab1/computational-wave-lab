@@ -479,9 +479,11 @@ export function AppShell() {
             </div>
           </div>
           <div className="panel-content">
-            {showSourceGrid ? (
+            {/* Always render SourceImageGridEnhanced to preserve state, use CSS to hide */}
+            <div style={{ display: showSourceGrid ? 'block' : 'none' }}>
               <SourceImageGridEnhanced onImagesChange={handleGridImagesChange} />
-            ) : (
+            </div>
+            {!showSourceGrid && (
               <UploadPanel onFilesAccepted={handleFilesAccepted} />
             )}
             <MixerControls />
