@@ -30,6 +30,7 @@ export interface FFTHistogramResult {
 declare const self: DedicatedWorkerGlobalScope;
 
 // Import fft.js dynamically in worker context
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let FFT: any = null;
 
 async function loadFFT() {

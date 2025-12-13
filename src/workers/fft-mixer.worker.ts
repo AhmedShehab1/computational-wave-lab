@@ -6,7 +6,7 @@ import type { WorkerMessageEnvelope } from './types'
 
 declare const self: DedicatedWorkerGlobalScope
 
-let canceledJobs = new Set<string>()
+const canceledJobs = new Set<string>()
 
 if (typeof self !== 'undefined') {
 self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayload>>) => {
