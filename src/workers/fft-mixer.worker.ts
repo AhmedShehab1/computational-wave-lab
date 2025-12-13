@@ -52,13 +52,14 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayloa
 async function runMixerJob(jobId: string, payload: MixerJobPayload) {
   validatePayload(payload)
   let modeUsed: MixerJobPayload['fftMode'] = payload.fftMode || 'js'
-  const maxElements = 1024 * 1024
+  const maxElements = 4 * 1024 * 1024 // 4M pixels (e.g., 2048x2048)
   const first = payload.images[0] as typeof payload.images[number]
   const width = first.width
   const height = first.height
   let adapter = await getFftAdapter({ mode: modeUsed })
   if (modeUsed === 'wasm') {
     if (width * height > maxElements) {
+      console.warn('[FFT Worker] Image too large for WASM, using JS fallback')
       modeUsed = 'js'
       adapter = await getFftAdapter({ mode: 'js' })
     } else {
@@ -66,6 +67,7 @@ async function runMixerJob(jobId: string, payload: MixerJobPayload) {
         adapter = await getFftAdapter({ mode: 'wasm' })
         modeUsed = 'wasm'
       } catch (err) {
+        console.warn('[FFT Worker] WASM FFT failed, falling back to JS:', err)
         modeUsed = 'js'
         adapter = await getFftAdapter({ mode: 'js' })
       }

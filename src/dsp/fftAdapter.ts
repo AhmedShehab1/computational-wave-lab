@@ -1,5 +1,44 @@
 import FFT from 'fft.js'
 
+// Helper to check if a number is a power of two
+function isPowerOfTwo(n: number): boolean {
+  return n > 0 && (n & (n - 1)) === 0
+}
+
+// Helper to get next power of two
+function nextPowerOfTwo(n: number): number {
+  if (n <= 1) return 2
+  n--
+  n |= n >> 1
+  n |= n >> 2
+  n |= n >> 4
+  n |= n >> 8
+  n |= n >> 16
+  return n + 1
+}
+
+// Pad 2D array to power of two dimensions
+function padToPow2(data: Float32Array, width: number, height: number, paddedW: number, paddedH: number): Float32Array {
+  const padded = new Float32Array(paddedW * paddedH)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      padded[y * paddedW + x] = data[y * width + x]
+    }
+  }
+  return padded
+}
+
+// Extract original size from padded result
+function unpad(data: Float32Array, paddedW: number, origW: number, origH: number): Float32Array {
+  const result = new Float32Array(origW * origH)
+  for (let y = 0; y < origH; y++) {
+    for (let x = 0; x < origW; x++) {
+      result[y * origW + x] = data[y * paddedW + x]
+    }
+  }
+  return result
+}
+
 export interface FftAdapter {
   fft2d(
     width: number,
@@ -48,73 +87,96 @@ export function createJsFftAdapter(): FftAdapter {
 
   return {
     fft2d(width, height, reIn, imIn) {
-      const re = Float32Array.from(reIn)
-      const im = imIn ? Float32Array.from(imIn) : new Float32Array(re.length)
-      const rowsRe = new Float32Array(re.length)
-      const rowsIm = new Float32Array(im.length)
+      // Calculate padded dimensions (must be power of two for fft.js)
+      const paddedW = isPowerOfTwo(width) ? width : nextPowerOfTwo(width)
+      const paddedH = isPowerOfTwo(height) ? height : nextPowerOfTwo(height)
 
-      // Row pass
-      for (let y = 0; y < height; y += 1) {
-        const offset = y * width
-        const rowRe = re.subarray(offset, offset + width)
-        const rowIm = im.subarray(offset, offset + width)
+      // Pad input to power-of-two dimensions
+      const re = padToPow2(Float32Array.from(reIn), width, height, paddedW, paddedH)
+      const im = imIn
+        ? padToPow2(Float32Array.from(imIn), width, height, paddedW, paddedH)
+        : new Float32Array(paddedW * paddedH)
+
+      const rowsRe = new Float32Array(paddedW * paddedH)
+      const rowsIm = new Float32Array(paddedW * paddedH)
+
+      // Row pass using padded width
+      for (let y = 0; y < paddedH; y += 1) {
+        const offset = y * paddedW
+        const rowRe = re.subarray(offset, offset + paddedW)
+        const rowIm = im.subarray(offset, offset + paddedW)
         const { re: outRe, im: outIm } = fft1d(rowRe, rowIm, false)
         rowsRe.set(outRe, offset)
         rowsIm.set(outIm, offset)
       }
 
-      // Column pass
-      const colRe = new Float32Array(re.length)
-      const colIm = new Float32Array(im.length)
-      for (let x = 0; x < width; x += 1) {
-        const inRe = new Float32Array(height)
-        const inIm = new Float32Array(height)
-        for (let y = 0; y < height; y += 1) {
-          const idx = y * width + x
+      // Column pass using padded height
+      const colRe = new Float32Array(paddedW * paddedH)
+      const colIm = new Float32Array(paddedW * paddedH)
+      for (let x = 0; x < paddedW; x += 1) {
+        const inRe = new Float32Array(paddedH)
+        const inIm = new Float32Array(paddedH)
+        for (let y = 0; y < paddedH; y += 1) {
+          const idx = y * paddedW + x
           inRe[y] = rowsRe[idx]
           inIm[y] = rowsIm[idx]
         }
         const { re: outRe, im: outIm } = fft1d(inRe, inIm, false)
-        for (let y = 0; y < height; y += 1) {
-          const idx = y * width + x
+        for (let y = 0; y < paddedH; y += 1) {
+          const idx = y * paddedW + x
           colRe[idx] = outRe[y]
           colIm[idx] = outIm[y]
         }
       }
 
-      return { re: colRe, im: colIm }
+      // Return unpadded result at original dimensions
+      return {
+        re: unpad(colRe, paddedW, width, height),
+        im: unpad(colIm, paddedW, width, height)
+      }
     },
 
     ifft2d(width, height, reIn, imIn) {
-      const rowsRe = new Float32Array(reIn.length)
-      const rowsIm = new Float32Array(imIn.length)
+      // Calculate padded dimensions
+      const paddedW = isPowerOfTwo(width) ? width : nextPowerOfTwo(width)
+      const paddedH = isPowerOfTwo(height) ? height : nextPowerOfTwo(height)
 
-      for (let y = 0; y < height; y += 1) {
-        const offset = y * width
-        const rowRe = reIn.subarray(offset, offset + width)
-        const rowIm = imIn.subarray(offset, offset + width)
+      // Pad input to power-of-two dimensions
+      const re = padToPow2(Float32Array.from(reIn), width, height, paddedW, paddedH)
+      const im = padToPow2(Float32Array.from(imIn), width, height, paddedW, paddedH)
+
+      const rowsRe = new Float32Array(paddedW * paddedH)
+      const rowsIm = new Float32Array(paddedW * paddedH)
+
+      // Row pass
+      for (let y = 0; y < paddedH; y += 1) {
+        const offset = y * paddedW
+        const rowRe = re.subarray(offset, offset + paddedW)
+        const rowIm = im.subarray(offset, offset + paddedW)
         const { re: outRe, im: outIm } = fft1d(rowRe, rowIm, true)
         rowsRe.set(outRe, offset)
         rowsIm.set(outIm, offset)
       }
 
-      const out = new Float32Array(reIn.length)
-      for (let x = 0; x < width; x += 1) {
-        const inRe = new Float32Array(height)
-        const inIm = new Float32Array(height)
-        for (let y = 0; y < height; y += 1) {
-          const idx = y * width + x
+      // Column pass
+      const outPadded = new Float32Array(paddedW * paddedH)
+      for (let x = 0; x < paddedW; x += 1) {
+        const inRe = new Float32Array(paddedH)
+        const inIm = new Float32Array(paddedH)
+        for (let y = 0; y < paddedH; y += 1) {
+          const idx = y * paddedW + x
           inRe[y] = rowsRe[idx]
           inIm[y] = rowsIm[idx]
         }
         const { re: outRe } = fft1d(inRe, inIm, true)
-        for (let y = 0; y < height; y += 1) {
-          const idx = y * width + x
-            out[idx] = outRe[y]
+        for (let y = 0; y < paddedH; y += 1) {
+          const idx = y * paddedW + x
+          outPadded[idx] = outRe[y]
         }
       }
 
-      return out
+      // Return unpadded result
+      return unpad(outPadded, paddedW, width, height)
     },
   }
 }
@@ -128,24 +190,12 @@ async function loadKissModule() {
   return kissModulePromise
 }
 
-// Helper to check if a number is a power of two
-function isPowerOfTwo(n: number): boolean {
-  return n > 0 && (n & (n - 1)) === 0
-}
-
-// Helper to get next power of two
-function nextPowerOfTwo(n: number): number {
-  if (n <= 1) return 2
-  n--
-  n |= n >> 1
-  n |= n >> 2
-  n |= n >> 4
-  n |= n >> 8
-  n |= n >> 16
-  return n + 1
-}
-
 export async function createWasmFftAdapter(): Promise<FftAdapter> {
+  // Check if SharedArrayBuffer is available (requires COOP/COEP headers)
+  if (typeof SharedArrayBuffer === 'undefined') {
+    throw new Error('SharedArrayBuffer not available - COOP/COEP headers may be missing')
+  }
+  
   const kiss = await loadKissModule()
   const FFTCtor = (kiss as any).FFT || (kiss as any).default?.FFT
   if (!FFTCtor) throw new Error('kissfft FFT not available')
@@ -173,92 +223,43 @@ export async function createWasmFftAdapter(): Promise<FftAdapter> {
     const size = re.length
     if (size <= 1) return { re: Float32Array.from(re), im: Float32Array.from(im) }
     
-    // Ensure we're working with power-of-two size
-    const paddedSize = isPowerOfTwo(size) ? size : nextPowerOfTwo(size)
-    
-    let workRe = re
-    let workIm = im
-    if (paddedSize !== size) {
-      // Pad to power of two
-      workRe = new Float32Array(paddedSize)
-      workIm = new Float32Array(paddedSize)
-      workRe.set(re)
-      workIm.set(im)
-    }
-    
-    const { fft, inBuf } = getFft(paddedSize)
-    for (let i = 0; i < paddedSize; i += 1) {
-      inBuf[2 * i] = workRe[i]
-      inBuf[2 * i + 1] = workIm[i]
+    // Size must be power of two - caller (fft2d) ensures this via padding
+    const { fft, inBuf } = getFft(size)
+    for (let i = 0; i < size; i += 1) {
+      inBuf[2 * i] = re[i]
+      inBuf[2 * i + 1] = im[i]
     }
     const out = fft.forward(inBuf)
     
-    // Return at padded size (caller will handle unpadding at 2D level)
-    const outRe = new Float32Array(paddedSize)
-    const outIm = new Float32Array(paddedSize)
-    for (let i = 0; i < paddedSize; i += 1) {
+    const outRe = new Float32Array(size)
+    const outIm = new Float32Array(size)
+    for (let i = 0; i < size; i += 1) {
       outRe[i] = out[2 * i]
       outIm[i] = out[2 * i + 1]
-    }
-    return { re: outRe, im: outIm, paddedSize }
-  }
-
-  const inverse1d = (re: Float32Array, im: Float32Array, origSize?: number) => {
-    const size = re.length
-    if (size <= 1) return { re: Float32Array.from(re), im: Float32Array.from(im) }
-    
-    // Size should already be power of two from forward transform
-    // But double-check and pad if needed
-    const paddedSize = isPowerOfTwo(size) ? size : nextPowerOfTwo(size)
-    
-    let workRe = re
-    let workIm = im
-    if (paddedSize !== size) {
-      workRe = new Float32Array(paddedSize)
-      workIm = new Float32Array(paddedSize)
-      workRe.set(re)
-      workIm.set(im)
-    }
-    
-    const { fft, inBuf } = getFft(paddedSize)
-    for (let i = 0; i < paddedSize; i += 1) {
-      inBuf[2 * i] = workRe[i]
-      inBuf[2 * i + 1] = -workIm[i]
-    }
-    const out = fft.forward(inBuf)
-    const norm = paddedSize
-    
-    // Return at original size if specified, otherwise padded size
-    const outSize = origSize ?? paddedSize
-    const outRe = new Float32Array(outSize)
-    const outIm = new Float32Array(outSize)
-    for (let i = 0; i < outSize; i += 1) {
-      outRe[i] = out[2 * i] / norm
-      outIm[i] = -out[2 * i + 1] / norm
     }
     return { re: outRe, im: outIm }
   }
 
-  // Pad 2D array to next power of two dimensions
-  const padToPow2 = (data: Float32Array, width: number, height: number, paddedW: number, paddedH: number) => {
-    const padded = new Float32Array(paddedW * paddedH)
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        padded[y * paddedW + x] = data[y * width + x]
-      }
+  const inverse1d = (re: Float32Array, im: Float32Array) => {
+    const size = re.length
+    if (size <= 1) return { re: Float32Array.from(re), im: Float32Array.from(im) }
+    
+    // Size must be power of two - caller (ifft2d) ensures this via padding
+    const { fft, inBuf } = getFft(size)
+    for (let i = 0; i < size; i += 1) {
+      inBuf[2 * i] = re[i]
+      inBuf[2 * i + 1] = -im[i]
     }
-    return padded
-  }
-
-  // Extract original size from padded result
-  const unpad = (data: Float32Array, paddedW: number, origW: number, origH: number) => {
-    const result = new Float32Array(origW * origH)
-    for (let y = 0; y < origH; y++) {
-      for (let x = 0; x < origW; x++) {
-        result[y * origW + x] = data[y * paddedW + x]
-      }
+    const out = fft.forward(inBuf)
+    const norm = size
+    
+    const outRe = new Float32Array(size)
+    const outIm = new Float32Array(size)
+    for (let i = 0; i < size; i += 1) {
+      outRe[i] = out[2 * i] / norm
+      outIm[i] = -out[2 * i + 1] / norm
     }
-    return result
+    return { re: outRe, im: outIm }
   }
 
   const adapter: FftAdapter = {
