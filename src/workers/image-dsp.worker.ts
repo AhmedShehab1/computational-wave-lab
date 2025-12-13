@@ -3,6 +3,12 @@
 import type { WorkerMessageEnvelope } from './types'
 import { toGrayscale } from './image-dsp.core'
 
+// Maximum dimension for any image (soft cap for memory safety)
+// Prevents browser crashes from huge images during FFT processing
+// Memory calculation: 12MP × 2 (Real/Imag) × 8 bytes = 200MB per image
+// Note: Cannot import from @/config/constants in worker, so duplicating value
+const MAX_IMAGE_DIMENSION = 1024;
+
 type StartPayload = {
   fileArrayBuffer?: ArrayBuffer
   fileType?: string
@@ -10,6 +16,7 @@ type StartPayload = {
   width?: number
   height?: number
   pixels?: Uint8ClampedArray
+  maxDimension?: number // Optional override for max dimension
 }
 
 type InboundMessage = WorkerMessageEnvelope<StartPayload>
@@ -67,13 +74,50 @@ async function processPayload(jobId: string, payload: StartPayload) {
     throw new Error('Missing file buffer or type')
   }
 
+  const maxDim = payload.maxDimension ?? MAX_IMAGE_DIMENSION;
   const blob = new Blob([payload.fileArrayBuffer], { type: payload.fileType })
-  const bitmap = await createBitmap(blob)
+  
+  // First, get the original bitmap to check dimensions
+  const originalBitmap = await createBitmap(blob)
   if (canceled.has(jobId)) throw new Error('Canceled')
+  
+  const originalWidth = originalBitmap.width;
+  const originalHeight = originalBitmap.height;
+  
+  // Calculate effective target size with pre-emptive downscaling
+  let effectiveWidth = payload.targetSize?.width ?? originalWidth;
+  let effectiveHeight = payload.targetSize?.height ?? originalHeight;
+  
+  // Enforce max dimension cap BEFORE any heavy processing
+  if (effectiveWidth > maxDim || effectiveHeight > maxDim) {
+    const scale = maxDim / Math.max(effectiveWidth, effectiveHeight);
+    effectiveWidth = Math.round(effectiveWidth * scale);
+    effectiveHeight = Math.round(effectiveHeight * scale);
+    console.log(
+      `[Worker] Pre-emptive downscale: ${originalWidth}×${originalHeight} → ${effectiveWidth}×${effectiveHeight} ` +
+      `(${((originalWidth * originalHeight) / 1e6).toFixed(1)}MP → ${((effectiveWidth * effectiveHeight) / 1e6).toFixed(2)}MP)`
+    );
+  }
+  
+  // If we need to resize, use createImageBitmap with resize options for efficiency
+  let bitmap = originalBitmap;
+  if (effectiveWidth !== originalWidth || effectiveHeight !== originalHeight) {
+    // Close original and create resized bitmap directly from blob (more memory efficient)
+    originalBitmap.close();
+    bitmap = await createImageBitmap(blob, {
+      resizeWidth: effectiveWidth,
+      resizeHeight: effectiveHeight,
+      resizeQuality: 'high',
+    });
+  }
+  
+  if (canceled.has(jobId)) {
+    bitmap.close();
+    throw new Error('Canceled');
+  }
 
-  const targetWidth = payload.targetSize?.width ?? bitmap.width
-  const targetHeight = payload.targetSize?.height ?? bitmap.height
-  const { rgba, width, height } = drawToCanvas(bitmap, targetWidth, targetHeight)
+  const { rgba, width, height } = drawToCanvas(bitmap, effectiveWidth, effectiveHeight)
+  bitmap.close();
   return { width, height, pixels: rgba }
 }
 
