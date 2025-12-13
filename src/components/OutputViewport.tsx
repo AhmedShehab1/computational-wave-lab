@@ -30,7 +30,26 @@ export function OutputViewport({ title, image, loading, showSpectrum, spectrumDa
     if (!image || !canvasRef.current) return
     const ctx = canvasRef.current.getContext('2d')
     if (!ctx) return
-    const frame = new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height)
+    
+    // Convert grayscale to RGBA if needed
+    let rgbaPixels: Uint8ClampedArray<ArrayBuffer>
+    if (image.pixels.length === image.width * image.height) {
+      // Grayscale data - expand to RGBA
+      rgbaPixels = new Uint8ClampedArray(image.width * image.height * 4)
+      for (let i = 0; i < image.pixels.length; i++) {
+        const v = image.pixels[i]
+        rgbaPixels[i * 4] = v      // R
+        rgbaPixels[i * 4 + 1] = v  // G
+        rgbaPixels[i * 4 + 2] = v  // B
+        rgbaPixels[i * 4 + 3] = 255 // A
+      }
+    } else {
+      // Already RGBA - copy to ensure regular ArrayBuffer backing
+      rgbaPixels = new Uint8ClampedArray(image.pixels.length)
+      rgbaPixels.set(image.pixels)
+    }
+    
+    const frame = new ImageData(rgbaPixels, image.width, image.height)
     ctx.putImageData(frame, 0, 0)
   }, [image])
 
