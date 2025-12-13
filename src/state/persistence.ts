@@ -220,7 +220,7 @@ export function usePersistence(options: {
     debouncedSaveRef.current = debouncedSave;
     
     const unsubscribe = useGlobalStore.subscribe(() => {
-      debouncedSave();
+      debouncedSave.call();
     });
     
     return () => {
