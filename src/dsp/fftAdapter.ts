@@ -197,9 +197,11 @@ export async function createWasmFftAdapter(): Promise<FftAdapter> {
   }
   
   const kiss = await loadKissModule()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const FFTCtor = (kiss as any).FFT || (kiss as any).default?.FFT
   if (!FFTCtor) throw new Error('kissfft FFT not available')
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cache = new Map<number, { fft: any; inBuf: Float32Array; tmpRe: Float32Array; tmpIm: Float32Array }>()
 
   const getFft = (size: number) => {
@@ -216,6 +218,7 @@ export async function createWasmFftAdapter(): Promise<FftAdapter> {
         tmpIm: new Float32Array(size),
       })
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return cache.get(size) as { fft: any; inBuf: Float32Array; tmpRe: Float32Array; tmpIm: Float32Array }
   }
 

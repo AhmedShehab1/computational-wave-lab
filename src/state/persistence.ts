@@ -201,28 +201,31 @@ export function usePersistence(options: {
     loadCallbackRef.current = onLoad;
   }, [onSave, onLoad]);
   
-  // Create debounced save function
-  const debouncedSaveRef = useRef(
-    debounce(() => {
-      const state = useGlobalStore.getState();
-      const success = saveStateToStorage(state);
-      if (success) {
-        saveCallbackRef.current?.();
-      }
-    }, debounceMs)
-  );
+  // Create debounced save function inside effect to avoid ref access during render
+  const debouncedSaveRef = useRef<ReturnType<typeof debounce> | null>(null);
   
   // Subscribe to store changes
   useEffect(() => {
     if (!enabled) return;
     
+    // Create debounced function inside effect
+    const debouncedSave = debounce(() => {
+      const state = useGlobalStore.getState();
+      const success = saveStateToStorage(state);
+      if (success) {
+        saveCallbackRef.current?.();
+      }
+    }, debounceMs);
+    
+    debouncedSaveRef.current = debouncedSave;
+    
     const unsubscribe = useGlobalStore.subscribe(() => {
-      debouncedSaveRef.current.call();
+      debouncedSave();
     });
     
     return () => {
       unsubscribe();
-      debouncedSaveRef.current.cancel();
+      debouncedSave.cancel();
     };
   }, [enabled, debounceMs]);
   
