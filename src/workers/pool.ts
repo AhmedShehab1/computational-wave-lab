@@ -175,7 +175,14 @@ export class WorkerManager<TPayload = unknown> {
 function extractTransfer(payload: unknown): Transferable[] {
   if (!payload || typeof payload !== 'object') return []
   const transfers: Transferable[] = []
-  const maybe = payload as { fileArrayBuffer?: ArrayBuffer; pixels?: Uint8ClampedArray; heatmap?: Float32Array }
+  const maybe = payload as { 
+    fileArrayBuffer?: ArrayBuffer
+    pixels?: Uint8ClampedArray
+    heatmap?: Float32Array
+    // Note: grayscale is intentionally NOT transferred because FFT histogram
+    // processing requires the same grayscale data for multiple components
+    // (magnitude, phase, real, imag). Structured clone is used instead.
+  }
   if (maybe.fileArrayBuffer) transfers.push(maybe.fileArrayBuffer)
   if (maybe.pixels?.buffer) transfers.push(maybe.pixels.buffer)
   if (maybe.heatmap?.buffer) transfers.push(maybe.heatmap.buffer)
