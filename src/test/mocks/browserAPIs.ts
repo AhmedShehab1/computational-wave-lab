@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * Mock implementations for browser APIs that are not available in jsdom
  * Used for testing image processing, canvas operations, and web workers
