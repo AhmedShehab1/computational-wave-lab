@@ -66,7 +66,17 @@ describe('runMixerJob helpers', () => {
   it('handles region masks and weights without throwing', async () => {
     const payload = {
       images: [{ id: 'A', width: 2, height: 2, pixels: new Uint8ClampedArray([1, 2, 3, 4]) }],
-      weights: { values: [0.5, 0.5, 0.5, 0.5], locked: false },
+      weights: { 
+        values: [0.5, 0.5, 0.5, 0.5], 
+        locked: false,
+        channels: [
+          { id: 'A', weight1: 0.5, weight2: 0.5, locked: true, muted: false, solo: false },
+          { id: 'B', weight1: 0.5, weight2: 0.5, locked: true, muted: false, solo: false },
+          { id: 'C', weight1: 0.5, weight2: 0.5, locked: true, muted: false, solo: false },
+          { id: 'D', weight1: 0.5, weight2: 0.5, locked: true, muted: false, solo: false },
+        ],
+        mode: 'mag-phase',
+      },
       regionMask: { shape: 'circle', mode: 'exclude', radius: 0 },
       brightnessConfig: { target: 'spatial', value: 0, contrast: 1 },
       targetViewport: 1,
