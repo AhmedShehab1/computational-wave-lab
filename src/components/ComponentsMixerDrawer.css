@@ -1,0 +1,443 @@
+/* ============================================================================
+   COMPONENTS MIXER DRAWER - Professional DSP Interface
+   Dark theme (#0F111A) with neon teal accents
+   ============================================================================ */
+
+/* Force dark theme on container */
+.components-mixer-drawer {
+  background-color: #0F111A !important;
+  color: #e6edf3 !important;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  min-width: 100%;
+  box-sizing: border-box;
+}
+
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
+.components-mixer-drawer .mixer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background-color: rgba(77, 208, 225, 0.05);
+  border-bottom: 1px solid #334155;
+}
+
+.components-mixer-drawer .mixer-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: rgba(230, 237, 243, 0.8);
+  text-transform: uppercase;
+}
+
+/* Mode Toggle Switch */
+.components-mixer-drawer .mixer-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.components-mixer-drawer .mixer-mode-toggle > span {
+  color: rgba(230, 237, 243, 0.4);
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.components-mixer-drawer .mixer-mode-toggle > span.active {
+  color: #4dd0e1;
+  font-weight: 500;
+}
+
+.components-mixer-drawer .toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 22px;
+  background-color: rgba(77, 208, 225, 0.2);
+  border: 1px solid rgba(77, 208, 225, 0.4);
+  border-radius: 11px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.components-mixer-drawer .toggle-switch:hover {
+  background-color: rgba(77, 208, 225, 0.3);
+}
+
+.components-mixer-drawer .toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background-color: #4dd0e1;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================================================
+   CHANNEL ROWS
+   ============================================================================ */
+
+.components-mixer-drawer .mixer-channels {
+  padding: 4px 0;
+}
+
+.components-mixer-drawer .mixer-channel-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  background-color: transparent;
+  transition: background-color 0.15s ease, opacity 0.25s ease;
+  /* Fade-in animation */
+  animation: channelFadeIn 0.3s ease-out forwards;
+}
+
+@keyframes channelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.components-mixer-drawer .mixer-channel-row:last-child {
+  border-bottom: none;
+}
+
+.components-mixer-drawer .mixer-channel-row:hover {
+  background-color: rgba(77, 208, 225, 0.03);
+}
+
+.components-mixer-drawer .mixer-channel-row.muted {
+  opacity: 0.4;
+}
+
+/* Channel Label */
+.components-mixer-drawer .channel-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e6edf3;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   SLIDERS - Teal themed with custom styling
+   ============================================================================ */
+
+.components-mixer-drawer .channel-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.components-mixer-drawer .slider-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.components-mixer-drawer .slider-container.secondary {
+  padding-left: 32px;
+}
+
+/* Lock button inline with slider */
+.components-mixer-drawer .lock-btn {
+  width: 24px;
+  height: 24px;
+  background-color: transparent;
+  border: 1px solid rgba(77, 208, 225, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.components-mixer-drawer .lock-btn:hover {
+  background-color: rgba(77, 208, 225, 0.15);
+  border-color: rgba(77, 208, 225, 0.5);
+}
+
+.components-mixer-drawer .lock-btn.locked {
+  background-color: rgba(77, 208, 225, 0.2);
+  border-color: #4dd0e1;
+}
+
+/* Slider Track */
+.components-mixer-drawer .slider-track {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  background-color: rgba(77, 208, 225, 0.15);
+  border-radius: 3px;
+  overflow: visible;
+}
+
+.components-mixer-drawer .slider-track.phase {
+  background-color: rgba(124, 77, 255, 0.15);
+}
+
+/* Slider Fill */
+.components-mixer-drawer .slider-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #26c6da, #4dd0e1);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: width 0.05s ease-out;
+}
+
+.components-mixer-drawer .slider-track.phase .slider-fill {
+  background: linear-gradient(90deg, #7c4dff, #9575cd);
+}
+
+/* Hidden native input */
+.components-mixer-drawer .slider-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Custom Thumb */
+.components-mixer-drawer .slider-thumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background-color: #4dd0e1;
+  border: 2px solid #0F111A;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(77, 208, 225, 0.4);
+  transition: transform 0.05s ease-out;
+}
+
+.components-mixer-drawer .slider-thumb.phase {
+  background-color: #7c4dff;
+  box-shadow: 0 2px 6px rgba(124, 77, 255, 0.4);
+}
+
+.components-mixer-drawer .slider-track:hover .slider-thumb {
+  transform: translate(-50%, -50%) scale(1.2);
+}
+
+/* ============================================================================
+   CONTROL BUTTONS - Mute / Solo / Lock
+   ============================================================================ */
+
+.components-mixer-drawer .channel-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.components-mixer-drawer .control-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: rgba(230, 237, 243, 0.6);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-transform: capitalize;
+}
+
+.components-mixer-drawer .control-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #e6edf3;
+}
+
+/* Mute Active State - Red */
+.components-mixer-drawer .control-btn.mute.active {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
+}
+
+/* Solo Active State - Yellow/Amber */
+.components-mixer-drawer .control-btn.solo.active {
+  background-color: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fbbf24;
+}
+
+/* Lock Active State - Teal */
+.components-mixer-drawer .control-btn.lock.active {
+  background-color: rgba(77, 208, 225, 0.2);
+  border-color: rgba(77, 208, 225, 0.5);
+  color: #4dd0e1;
+}
+
+/* ============================================================================
+   NUMERIC INPUT
+   ============================================================================ */
+
+.components-mixer-drawer .weight-input {
+  width: 52px;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  background-color: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(77, 208, 225, 0.25);
+  border-radius: 4px;
+  color: #e6edf3;
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.components-mixer-drawer .weight-input::-webkit-inner-spin-button,
+.components-mixer-drawer .weight-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.components-mixer-drawer .weight-input:focus {
+  outline: none;
+  border-color: #4dd0e1;
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* ============================================================================
+   WARNING INDICATOR
+   ============================================================================ */
+
+.components-mixer-drawer .warning-indicator {
+  font-size: 16px;
+  animation: pulse-warning 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-warning {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ============================================================================
+   FOOTER
+   ============================================================================ */
+
+.components-mixer-drawer .mixer-footer {
+  padding: 8px 16px;
+  background-color: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid #334155;
+  border-radius: 0 0 8px 8px;
+}
+
+.components-mixer-drawer .footer-info {
+  font-size: 11px;
+  color: rgba(77, 208, 225, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ============================================================================
+   EMPTY STATE
+   ============================================================================ */
+
+.components-mixer-drawer .mixer-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  animation: emptyFadeIn 0.4s ease-out;
+}
+
+@keyframes emptyFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.components-mixer-drawer .empty-icon {
+  color: rgba(77, 208, 225, 0.3);
+  margin-bottom: 16px;
+}
+
+.components-mixer-drawer .empty-icon svg {
+  width: 48px;
+  height: 48px;
+}
+
+.components-mixer-drawer .empty-text {
+  font-size: 13px;
+  color: rgba(230, 237, 243, 0.5);
+  max-width: 220px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Disabled toggle when no channels */
+.components-mixer-drawer .toggle-switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.components-mixer-drawer .toggle-switch:disabled:hover {
+  background-color: rgba(77, 208, 225, 0.2);
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 600px) {
+  .components-mixer-drawer .mixer-channel-row {
+    grid-template-columns: 70px 1fr auto auto;
+    gap: 8px;
+    padding: 6px 12px;
+  }
+
+  .components-mixer-drawer .channel-sliders {
+    min-width: 100px;
+  }
+
+  .components-mixer-drawer .mixer-mode-toggle > span {
+    display: none;
+  }
+
+  .components-mixer-drawer .mixer-empty-state {
+    padding: 32px 16px;
+  }
+}

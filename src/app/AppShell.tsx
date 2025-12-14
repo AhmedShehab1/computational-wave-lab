@@ -4,7 +4,7 @@ import { SafeModeBanner } from '@/components/SafeModeBanner'
 import { ToastStack } from '@/components/ToastStack'
 import { TopHeader } from '@/components/TopHeader'
 import { UploadPanel } from '@/components/UploadPanel'
-import { MixerControls } from '@/components/MixerControls'
+import { ComponentsMixerDrawer } from '@/components/ComponentsMixerDrawer'
 import { RegionControls } from '@/components/RegionControls'
 import { AdaptiveCanvas } from '@/components/AdaptiveCanvas'
 import { SteeringJoystick } from '@/components/SteeringJoystick'
@@ -486,7 +486,7 @@ export function AppShell() {
             {!showSourceGrid && (
               <UploadPanel onFilesAccepted={handleFilesAccepted} />
             )}
-            <MixerControls />
+            <ComponentsMixerDrawer />
             <RegionControls />
             
             <div className="action-row">
