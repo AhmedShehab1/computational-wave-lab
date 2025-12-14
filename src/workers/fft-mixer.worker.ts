@@ -1,12 +1,63 @@
 /// <reference lib="webworker" />
 
 import { getFftAdapter } from '@/dsp/fftAdapter'
-import type { MixerJobPayload } from '@/types'
+import type { MixerJobPayload, MixerWeights, ImageSlotId, MixerMode } from '@/types'
 import type { WorkerMessageEnvelope } from './types'
 
 declare const self: DedicatedWorkerGlobalScope
 
 const canceledJobs = new Set<string>()
+
+/**
+ * Compute effective weights considering mute/solo states
+ * Falls back to legacy weight values if channels array is missing
+ */
+function computeEffectiveWeights(weights: MixerWeights, imageIds: ImageSlotId[]): Map<ImageSlotId, { w1: number; w2: number }> {
+  const result = new Map<ImageSlotId, { w1: number; w2: number }>()
+  const channels = weights.channels ?? []
+  
+  // If no channels defined, fall back to legacy values array
+  if (channels.length === 0) {
+    const legacyValues = weights.values ?? [1, 1, 1, 1]
+    const slotIds: ImageSlotId[] = ['A', 'B', 'C', 'D']
+    for (let i = 0; i < slotIds.length; i++) {
+      const w = legacyValues[i] ?? 1
+      result.set(slotIds[i], { w1: w, w2: w })
+    }
+    return result
+  }
+  
+  // Check if any channel has solo active
+  const soloActive = channels.some((ch) => ch.solo)
+  
+  for (const ch of channels) {
+    let w1: number
+    let w2: number
+    
+    if (ch.muted) {
+      // Muted channels contribute nothing
+      w1 = 0
+      w2 = 0
+    } else if (soloActive) {
+      // Solo mode: only soloed channels contribute
+      if (ch.solo) {
+        w1 = ch.weight1
+        w2 = ch.weight2
+      } else {
+        w1 = 0
+        w2 = 0
+      }
+    } else {
+      // Normal mode
+      w1 = ch.weight1
+      w2 = ch.weight2
+    }
+    
+    result.set(ch.id, { w1, w2 })
+  }
+  
+  return result
+}
 
 if (typeof self !== 'undefined') {
 self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<MixerJobPayload>>) => {
@@ -82,14 +133,23 @@ async function runMixerJob(jobId: string, payload: MixerJobPayload) {
   const accumRe = new Float32Array(width * height)
   const accumIm = new Float32Array(width * height)
 
+  // Compute effective weights (handles mute/solo logic)
+  const imageIds = payload.images.map((img) => img.id)
+  const effectiveWeights = computeEffectiveWeights(payload.weights, imageIds)
+  const mixerMode = payload.weights.mode || 'mag-phase'
+
   for (const image of payload.images) {
     if (canceledJobs.has(jobId)) throw new Error('Canceled')
+    
+    const channelWeights = effectiveWeights.get(image.id) || { w1: 1, w2: 1 }
     const reIn = Float32Array.from(image.pixels)
     const { re, im } = adapter.fft2d(image.width, image.height, reIn)
     emitProgress(jobId, 0.25)
 
     if (applyMask) applyRegionMask(re, im, image.width, image.height, mask, payload.regionMask.mode)
-    applyWeights(re, im, payload.weights)
+    
+    // Apply 2D weights based on mixer mode
+    applyChannelWeights(re, im, channelWeights.w1, channelWeights.w2, mixerMode)
     emitProgress(jobId, 0.55)
 
     for (let i = 0; i < accumRe.length; i += 1) {
@@ -146,7 +206,58 @@ function applyRegionMask(
   }
 }
 
-function applyWeights(re: Float32Array, im: Float32Array, weights: MixerJobPayload['weights']) {
+/**
+ * Apply 2D weights to FFT data based on mixer mode
+ * 
+ * In mag-phase mode:
+ *   - weight1 scales magnitude: mag' = mag * w1
+ *   - weight2 scales phase offset (additive): phase' = phase * w2
+ *   - Re-compose: re = mag' * cos(phase'), im = mag' * sin(phase')
+ * 
+ * In real-imag mode:
+ *   - weight1 directly scales real part: re' = re * w1
+ *   - weight2 directly scales imaginary part: im' = im * w2
+ */
+function applyChannelWeights(
+  re: Float32Array,
+  im: Float32Array,
+  weight1: number,
+  weight2: number,
+  mode: MixerMode
+) {
+  const len = re.length
+  
+  if (mode === 'real-imag') {
+    // Direct scaling of real and imaginary parts
+    for (let i = 0; i < len; i++) {
+      re[i] *= weight1
+      im[i] *= weight2
+    }
+  } else {
+    // Magnitude-Phase mode (default)
+    for (let i = 0; i < len; i++) {
+      const r = re[i]
+      const c = im[i]
+      
+      // Convert to polar
+      const mag = Math.sqrt(r * r + c * c)
+      const phase = Math.atan2(c, r)
+      
+      // Scale magnitude by weight1
+      const scaledMag = mag * weight1
+      
+      // Scale phase by weight2 (multiplicative to preserve structure)
+      const scaledPhase = phase * weight2
+      
+      // Convert back to cartesian
+      re[i] = scaledMag * Math.cos(scaledPhase)
+      im[i] = scaledMag * Math.sin(scaledPhase)
+    }
+  }
+}
+
+/** @deprecated Legacy weight application - kept for backward compatibility */
+function _applyWeights(re: Float32Array, im: Float32Array, weights: MixerWeights) {
   const magnitude = weights.values
   const locked = weights.locked
   const len = Math.min(re.length, magnitude.length)
