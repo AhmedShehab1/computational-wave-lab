@@ -1,41 +1,45 @@
 import { useGlobalStore } from '@/state/globalStore'
+import type { ImageSlotId } from '@/types'
 
-const weightLabels = ['A', 'B', 'C', 'D']
+const CHANNEL_LABELS: Record<ImageSlotId, string> = {
+  A: 'Channel A',
+  B: 'Channel B',
+  C: 'Channel C',
+  D: 'Channel D',
+}
 
 export function MixerControls() {
   const mixerConfig = useGlobalStore((s) => s.mixerConfig)
-  const setMixerConfig = useGlobalStore((s) => s.setMixerConfig)
+  const updateMixerChannel = useGlobalStore((s) => s.updateMixerChannel)
+  const toggleChannelLock = useGlobalStore((s) => s.toggleChannelLock)
   const brightnessConfig = useGlobalStore((s) => s.brightnessConfig)
   const setBrightnessConfig = useGlobalStore((s) => s.setBrightnessConfig)
 
-  const updateWeight = (idx: number, value: number) => {
-    const next = mixerConfig.values.length ? [...mixerConfig.values] : [1, 1, 1, 1]
-    next[idx] = value
-    setMixerConfig({ ...mixerConfig, values: next })
-  }
+  // Handle legacy store data that might not have channels array
+  const channels = mixerConfig.channels ?? []
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <span style={{ fontWeight: 600 }}>Weights</span>
-        <button
-          type="button"
-          title="Lock weight symmetry"
-          onClick={() => setMixerConfig({ ...mixerConfig, locked: !mixerConfig.locked })}
-          style={{ fontSize: 12 }}
-        >
-          {mixerConfig.locked ? '🔒' : '🔓'}
-        </button>
       </div>
-      {weightLabels.map((label, idx) => (
-        <div key={label} style={{ display: 'grid', gap: 4 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-            <span>Channel {label}</span>
+      {channels.map((channel) => (
+        <div key={channel.id} style={{ display: 'grid', gap: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, alignItems: 'center' }}>
+            <span>{CHANNEL_LABELS[channel.id]}</span>
+            <button
+              type="button"
+              title={channel.locked ? 'Unlock weights' : 'Lock weights together'}
+              onClick={() => toggleChannelLock(channel.id)}
+              style={{ fontSize: 12, marginRight: 8 }}
+            >
+              {channel.locked ? '🔒' : '🔓'}
+            </button>
             <input
               type="number"
               step={0.05}
-              value={mixerConfig.values[idx] ?? 1}
-              onChange={(e) => updateWeight(idx, Number(e.target.value))}
+              value={channel.weight1}
+              onChange={(e) => updateMixerChannel(channel.id, { weight1: Number(e.target.value) })}
               style={{ width: 64 }}
             />
           </div>
@@ -44,8 +48,8 @@ export function MixerControls() {
             min={-2}
             max={2}
             step={0.05}
-            value={mixerConfig.values[idx] ?? 1}
-            onChange={(e) => updateWeight(idx, Number(e.target.value))}
+            value={channel.weight1}
+            onChange={(e) => updateMixerChannel(channel.id, { weight1: Number(e.target.value) })}
           />
         </div>
       ))}

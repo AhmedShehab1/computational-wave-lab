@@ -8,6 +8,8 @@ import type {
   ImageDataPayload,
   ImageSlotId,
   MixerWeights,
+  MixerChannel,
+  MixerMode,
   RegionMask,
   BrightnessConfig,
   OutputViewportId,
@@ -19,6 +21,29 @@ import type {
   WidebandMode,
   Toast,
 } from '@/types'
+
+/** Create default mixer channel */
+const createDefaultChannel = (id: ImageSlotId): MixerChannel => ({
+  id,
+  weight1: 1,
+  weight2: 1,
+  locked: true,
+  muted: false,
+  solo: false,
+})
+
+/** Default mixer configuration */
+const DEFAULT_MIXER_CONFIG: MixerWeights = {
+  values: [1, 1, 1, 1], // Legacy compat
+  locked: false,
+  channels: [
+    createDefaultChannel('A'),
+    createDefaultChannel('B'),
+    createDefaultChannel('C'),
+    createDefaultChannel('D'),
+  ],
+  mode: 'mag-phase',
+}
 
 export interface GlobalState {
   files: FileMeta[]
@@ -63,6 +88,11 @@ export interface GlobalState {
   clearSnapshots: () => void
   setMixerWeights: (weights: number[]) => void
   setMixerConfig: (config: MixerWeights) => void
+  updateMixerChannel: (id: ImageSlotId, updates: Partial<MixerChannel>) => void
+  setMixerMode: (mode: MixerMode) => void
+  toggleChannelMute: (id: ImageSlotId) => void
+  toggleChannelSolo: (id: ImageSlotId) => void
+  toggleChannelLock: (id: ImageSlotId) => void
   setRegionMask: (mask: RegionMask) => void
   setBrightnessConfig: (config: BrightnessConfig) => void
   setFiles: (files: FileMeta[]) => void
@@ -99,7 +129,7 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   images: { A: null, B: null, C: null, D: null },
   workspaceDimensions: { width: 0, height: 0 },
   normalizedSize: undefined,
-  mixerConfig: { values: [] },
+  mixerConfig: DEFAULT_MIXER_CONFIG,
   regionMask: { shape: 'circle', mode: 'include', radius: 1 },
   brightnessConfig: { target: 'spatial', value: 0, contrast: 1 },
   outputImages: { 1: null, 2: null },
@@ -137,6 +167,56 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   clearSnapshots: () => set({ snapshots: [] }),
   setMixerWeights: (weights) => set({ mixerWeights: weights }),
   setMixerConfig: (config) => set({ mixerConfig: config }),
+  updateMixerChannel: (id, updates) => {
+    const current = get().mixerConfig
+    const channels = current.channels ?? []
+    const updatedChannels = channels.map((ch) => {
+      if (ch.id !== id) return ch
+      const updated = { ...ch, ...updates }
+      // If locked and weight1 changed, sync weight2
+      if (updated.locked && updates.weight1 !== undefined) {
+        updated.weight2 = updates.weight1
+      }
+      // If locked and weight2 changed, sync weight1
+      if (updated.locked && updates.weight2 !== undefined) {
+        updated.weight1 = updates.weight2
+      }
+      return updated
+    })
+    // Also update legacy values array for backward compat
+    const values = updatedChannels.map((ch) => ch.weight1)
+    set({ mixerConfig: { ...current, channels: updatedChannels, values } })
+  },
+  setMixerMode: (mode) => {
+    const current = get().mixerConfig
+    set({ mixerConfig: { ...current, mode } })
+  },
+  toggleChannelMute: (id) => {
+    const current = get().mixerConfig
+    const channels = (current.channels ?? []).map((ch) =>
+      ch.id === id ? { ...ch, muted: !ch.muted } : ch
+    )
+    set({ mixerConfig: { ...current, channels } })
+  },
+  toggleChannelSolo: (id) => {
+    const current = get().mixerConfig
+    const channels = (current.channels ?? []).map((ch) =>
+      ch.id === id ? { ...ch, solo: !ch.solo } : ch
+    )
+    set({ mixerConfig: { ...current, channels } })
+  },
+  toggleChannelLock: (id) => {
+    const current = get().mixerConfig
+    const channels = (current.channels ?? []).map((ch) => {
+      if (ch.id !== id) return ch
+      const newLocked = !ch.locked
+      // When locking, sync weight2 to weight1
+      return newLocked
+        ? { ...ch, locked: true, weight2: ch.weight1 }
+        : { ...ch, locked: false }
+    })
+    set({ mixerConfig: { ...current, channels } })
+  },
   setRegionMask: (mask) => set({ regionMask: mask }),
   setBrightnessConfig: (config) => set({ brightnessConfig: config }),
   setFiles: (files) => set({ files }),
