@@ -83,9 +83,38 @@ export interface ImageDataPayload {
   pixels: Uint8ClampedArray
 }
 
+/**
+ * Individual mixer channel with 2D weight control (Magnitude/Phase or Real/Imag)
+ */
+export interface MixerChannel {
+  id: ImageSlotId
+  /** Weight for Magnitude (or Real part in Real/Imag mode) */
+  weight1: number
+  /** Weight for Phase (or Imaginary part in Real/Imag mode) */
+  weight2: number
+  /** When locked, weight1 and weight2 move together */
+  locked: boolean
+  /** Temporarily treats weights as zero without losing values */
+  muted: boolean
+  /** When active, this channel is 100% and others become 0% */
+  solo: boolean
+}
+
+/** Mode selector for mixer interpretation */
+export type MixerMode = 'mag-phase' | 'real-imag'
+
+/**
+ * Complete mixer configuration with 2D weight matrix
+ */
 export interface MixerWeights {
+  /** Legacy: simple array of weights (deprecated, for backward compat) */
   values: number[]
+  /** Legacy locked flag (deprecated) */
   locked?: boolean
+  /** New 2D channel configuration */
+  channels: MixerChannel[]
+  /** Current mixer mode */
+  mode: MixerMode
 }
 
 export type RegionShape = 'circle' | 'rect'
@@ -114,6 +143,18 @@ export interface MixerJobPayload {
   brightnessConfig: BrightnessConfig
   targetViewport: OutputViewportId
   fftMode?: 'js' | 'wasm'
+}
+
+/**
+ * Effective weights computed from MixerWeights considering mute/solo states
+ */
+export interface EffectiveMixerWeights {
+  channels: Array<{
+    id: ImageSlotId
+    weight1: number // Magnitude or Real weight
+    weight2: number // Phase or Imaginary weight
+  }>
+  mode: MixerMode
 }
 
 export interface BeamJobPayload {

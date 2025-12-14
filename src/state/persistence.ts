@@ -5,6 +5,7 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { useGlobalStore, type GlobalState } from './globalStore';
+import type { ImageSlotId, MixerChannel, MixerWeights } from '@/types';
 
 const STORAGE_KEY = 'quantum-wave-lab-state';
 const STORAGE_VERSION = 1;
@@ -88,26 +89,73 @@ export function loadStateFromStorage(): Partial<PersistedState> | null {
     
     const payload: StoragePayload = JSON.parse(stored);
     
-    // Version check and migration
-    if (payload.version !== STORAGE_VERSION) {
-      console.log('[Persistence] Version mismatch, migrating...');
-      return migrateState(payload);
-    }
-    
-    return payload.data;
+    // Always run migration to handle schema changes within same version
+    return migrateState(payload);
   } catch (error) {
     console.warn('[Persistence] Failed to load state:', error);
     return null;
   }
 }
 
+/** Create default mixer channel for migration */
+const createDefaultChannel = (id: ImageSlotId): MixerChannel => ({
+  id,
+  weight1: 1,
+  weight2: 1,
+  locked: true,
+  muted: false,
+  solo: false,
+});
+
+/** Default channels for migration */
+const DEFAULT_CHANNELS: MixerChannel[] = [
+  createDefaultChannel('A'),
+  createDefaultChannel('B'),
+  createDefaultChannel('C'),
+  createDefaultChannel('D'),
+];
+
+/**
+ * Migrate mixerConfig to ensure channels array exists
+ */
+function migrateMixerConfig(config: Partial<MixerWeights> | undefined): MixerWeights | undefined {
+  if (!config) return undefined;
+  
+  // If channels array is missing or empty, create it from legacy values
+  if (!config.channels || config.channels.length === 0) {
+    const legacyValues = config.values ?? [1, 1, 1, 1];
+    const channels: MixerChannel[] = (['A', 'B', 'C', 'D'] as ImageSlotId[]).map((id, i) => ({
+      id,
+      weight1: legacyValues[i] ?? 1,
+      weight2: legacyValues[i] ?? 1,
+      locked: true,
+      muted: false,
+      solo: false,
+    }));
+    
+    return {
+      ...config,
+      channels,
+      mode: config.mode ?? 'mag-phase',
+      values: legacyValues,
+    } as MixerWeights;
+  }
+  
+  return config as MixerWeights;
+}
+
 /**
  * Migrate old state versions to current
  */
 function migrateState(payload: StoragePayload): Partial<PersistedState> | null {
-  // For now, just return the data as-is
-  // Add migration logic here as versions evolve
-  return payload.data;
+  const data = payload.data;
+  
+  // Migrate mixerConfig if needed
+  if (data.mixerConfig) {
+    data.mixerConfig = migrateMixerConfig(data.mixerConfig);
+  }
+  
+  return data;
 }
 
 /**
@@ -242,8 +290,11 @@ export function usePersistence(options: {
     
     const store = useGlobalStore.getState();
     
-    // Apply persisted state
-    if (data.mixerConfig) store.setMixerConfig(data.mixerConfig);
+    // Apply persisted state (with migration for mixerConfig)
+    if (data.mixerConfig) {
+      const migratedConfig = migrateMixerConfig(data.mixerConfig);
+      if (migratedConfig) store.setMixerConfig(migratedConfig);
+    }
     if (data.regionMask) store.setRegionMask(data.regionMask);
     if (data.brightnessConfig) store.setBrightnessConfig(data.brightnessConfig);
     if (data.mixerWeights) store.setMixerWeights(data.mixerWeights);
