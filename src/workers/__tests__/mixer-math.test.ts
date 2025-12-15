@@ -10,7 +10,7 @@
  * - Linear algebra: weighted sums in frequency domain
  */
 
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { runMixerJob } from '../fft-mixer.worker'
 import type { MixerJobPayload, MixerChannel, ImageSlotId, MixerWeights } from '@/types'
 
@@ -45,16 +45,6 @@ function createConstantImage(
 ): { id: ImageSlotId; width: number; height: number; pixels: Uint8ClampedArray } {
   const pixels = new Uint8ClampedArray(size * size).fill(value)
   return { id, width: size, height: size, pixels }
-}
-
-/**
- * Create a black (zero) image
- */
-function createBlackImage(
-  id: ImageSlotId,
-  size = 4
-): { id: ImageSlotId; width: number; height: number; pixels: Uint8ClampedArray } {
-  return { id, width: size, height: size, pixels: new Uint8ClampedArray(size * size) }
 }
 
 /**
@@ -156,21 +146,6 @@ function sumPixels(pixels: Uint8ClampedArray): number {
  */
 function isAllZeros(pixels: Uint8ClampedArray, threshold = 1): boolean {
   return pixels.every((v) => v <= threshold)
-}
-
-/**
- * Check if two pixel arrays are approximately equal
- */
-function pixelsApproxEqual(
-  a: Uint8ClampedArray,
-  b: Uint8ClampedArray,
-  tolerance = 5
-): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (Math.abs(a[i] - b[i]) > tolerance) return false
-  }
-  return true
 }
 
 // ============================================================================
