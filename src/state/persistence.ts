@@ -97,23 +97,7 @@ export function loadStateFromStorage(): Partial<PersistedState> | null {
   }
 }
 
-/** Create default mixer channel for migration */
-const createDefaultChannel = (id: ImageSlotId): MixerChannel => ({
-  id,
-  weight1: 1,
-  weight2: 1,
-  locked: true,
-  muted: false,
-  solo: false,
-});
 
-/** Default channels for migration */
-const DEFAULT_CHANNELS: MixerChannel[] = [
-  createDefaultChannel('A'),
-  createDefaultChannel('B'),
-  createDefaultChannel('C'),
-  createDefaultChannel('D'),
-];
 
 /**
  * Migrate mixerConfig to ensure channels array exists

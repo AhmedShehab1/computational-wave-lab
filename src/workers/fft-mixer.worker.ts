@@ -12,7 +12,7 @@ const canceledJobs = new Set<string>()
  * Compute effective weights considering mute/solo states
  * Falls back to legacy weight values if channels array is missing
  */
-function computeEffectiveWeights(weights: MixerWeights, imageIds: ImageSlotId[]): Map<ImageSlotId, { w1: number; w2: number }> {
+function computeEffectiveWeights(weights: MixerWeights, _imageIds: ImageSlotId[]): Map<ImageSlotId, { w1: number; w2: number }> {
   const result = new Map<ImageSlotId, { w1: number; w2: number }>()
   const channels = weights.channels ?? []
   

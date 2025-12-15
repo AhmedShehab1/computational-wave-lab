@@ -35,13 +35,14 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
   const toggleChannelSolo = useGlobalStore((s) => s.toggleChannelSolo);
   const toggleChannelLock = useGlobalStore((s) => s.toggleChannelLock);
 
-  // Handle legacy store data that might not have channels array
-  const allChannels = mixerConfig.channels ?? [];
-
   // Filter channels to only show those with loaded images (Reactive UX)
+  // Note: allChannels logic is inside useMemo to avoid dependency issues
   const activeChannels = useMemo(
-    () => allChannels.filter((ch) => images[ch.id] !== null),
-    [allChannels, images]
+    () => {
+      const allChannels = mixerConfig.channels ?? [];
+      return allChannels.filter((ch) => images[ch.id] !== null);
+    },
+    [mixerConfig.channels, images]
   );
 
   // Defer heavy state updates for 60fps slider responsiveness
