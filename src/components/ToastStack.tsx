@@ -1,5 +1,31 @@
 import { useEffect } from 'react'
 import { useGlobalStore } from '@/state/globalStore'
+import { ToastNotification } from './ui/ToastNotification'
+
+// Keyframe animation for toast entry
+const keyframeStyle = `
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+`;
 
 export function ToastStack() {
   const toasts = useGlobalStore((s) => s.toasts)
@@ -9,7 +35,7 @@ export function ToastStack() {
 
   useEffect(() => {
     const timers = toasts.map((toast) =>
-      setTimeout(() => removeToast(toast.id), toast.duration ?? 2500),
+      setTimeout(() => removeToast(toast.id), toast.duration ?? 4000),
     )
     return () => {
       timers.forEach(clearTimeout)
@@ -19,37 +45,31 @@ export function ToastStack() {
   if (!toasts.length) return null
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 16,
-        right: 16,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        zIndex: 20,
-      }}
-      aria-live={hasAssertive ? 'assertive' : 'polite'}
-      aria-atomic="true"
-    >
-      {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          style={{
-            padding: '10px 12px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--panel)',
-            border: '1px solid var(--panel-border)',
-            color: 'var(--text-primary)',
-            boxShadow: 'var(--shadow-soft)',
-            minWidth: 220,
-          }}
-          role={toast.type === 'error' || toast.type === 'warning' ? 'alert' : 'status'}
-          aria-live={toast.type === 'error' || toast.type === 'warning' ? 'assertive' : 'polite'}
-        >
-          {toast.message}
-        </div>
-      ))}
-    </div>
+    <>
+      {/* Inject keyframe animations */}
+      <style>{keyframeStyle}</style>
+      
+      <div
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          zIndex: 9999,
+        }}
+        aria-live={hasAssertive ? 'assertive' : 'polite'}
+        aria-atomic="true"
+      >
+        {toasts.map((toast) => (
+          <ToastNotification
+            key={toast.id}
+            toast={toast}
+            onDismiss={removeToast}
+          />
+        ))}
+      </div>
+    </>
   )
 }
