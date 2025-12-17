@@ -1755,25 +1755,28 @@
   left: 18px;
 }
 
-/* ============ MEASUREMENTS RIBBON ============ */
+/* ============ MEASUREMENTS RIBBON - COMPACT COCKPIT ============ */
 .measurements-ribbon {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0;
   background: var(--bg-panel);
   border-top: 1px solid var(--border-subtle);
+  max-height: 72px;         /* Compact fixed height */
+  flex-shrink: 0;
 }
 
 .measurements-ribbon.compact {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  max-height: 56px;
 }
 
 .measurement-card {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   cursor: pointer;
   transition: background var(--duration-fast), box-shadow var(--duration-fast);
   position: relative;
@@ -1793,7 +1796,7 @@
 }
 
 .measurement-card.compact {
-  padding: 8px 12px;
+  padding: 6px 10px;
 }
 
 .measurement-card.status-warning {
@@ -1811,7 +1814,7 @@
 }
 
 .measurement-card .label {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1820,12 +1823,12 @@
 .measurement-card .trend {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 10px;
+  gap: 3px;
+  font-size: 9px;
 }
 
 .measurement-card .trend .percent-change {
-  font-size: 9px;
+  font-size: 8px;
   opacity: 0.8;
 }
 
@@ -1836,31 +1839,31 @@
 }
 
 .measurement-card .value {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--accent-cyan);
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 3px;
   font-variant-numeric: tabular-nums;
 }
 
 .measurement-card.compact .value {
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .measurement-card .value .unit {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 400;
   color: var(--text-secondary);
 }
 
 .measurement-card.compact .value .unit {
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .measurement-card .target {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   display: flex;
   flex-direction: column;
@@ -1868,7 +1871,7 @@
 }
 
 .measurement-card .target-label {
-  font-size: 8px;
+  font-size: 7px;
   text-transform: uppercase;
   opacity: 0.7;
 }
@@ -1878,19 +1881,19 @@
 }
 
 .measurement-card .sparkline-container {
-  margin-top: 6px;
+  margin-top: 4px;
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .measurement-card .sparkline {
   flex: 1;
-  height: 28px;
+  height: 20px;
 }
 
 .measurement-card.compact .sparkline {
-  height: 20px;
+  height: 16px;
 }
 
 .measurement-card .min-max {
@@ -2903,6 +2906,14 @@ select:focus-visible {
 }
 
 /* ============ BEAM CONTROLS ============ */
+.beam-workspace {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  max-height: calc(100vh - 140px);  /* Constrain to viewport minus header/ribbon/status */
+  overflow: hidden;
+}
+
 .beam-controls {
   display: flex;
   flex-direction: column;

@@ -6,17 +6,16 @@ import { TopHeader } from '@/components/TopHeader'
 import { UploadPanel } from '@/components/UploadPanel'
 import { ComponentsMixerDrawer } from '@/components/ComponentsMixerDrawer'
 import { RegionControls } from '@/components/RegionControls'
-import { AdaptiveCanvas } from '@/components/AdaptiveCanvas'
-import { SteeringJoystick } from '@/components/SteeringJoystick'
 import { OutputViewport } from '@/components/OutputViewport'
 import { MeasurementsRibbon, createDefaultMeasurements } from '@/components/MeasurementsRibbon'
 import { StatusBar } from '@/components/StatusBar'
 import { SourceImageGridEnhanced } from '@/components/SourceImageGridEnhanced'
+import { BeamSidebar } from '@/components/BeamSidebar'
+import { BeamformingStage } from '@/components/BeamformingStage'
 import { useWorkerSupport } from '@/hooks/useWorkerSupport'
 import { useGlobalStore } from '@/state/globalStore'
-import { usePersistence, exportStateAsJson, importStateFromJson } from '@/state/persistence'
+import { usePersistence, exportStateAsJson, importStateFromJson as _importStateFromJson } from '@/state/persistence'
 import { beamWorkerPool, fftWorkerPool, imageWorkerPool } from '@/workers/pool'
-import { mapHeatmapToImageData } from '@/utils/colormap'
 import { computeRowSpectrum } from '@/utils/spectrum'
 import { fftMode as defaultFftMode } from '@/config/runtime'
 import type { BeamJobPayload, FileMeta, FileSlot, MixerJobPayload, OutputViewportId } from '@/types'
@@ -33,6 +32,8 @@ export function AppShell() {
   const mixerConfig = useGlobalStore((s) => s.mixerConfig)
   const regionMask = useGlobalStore((s) => s.regionMask)
   const brightnessConfig = useGlobalStore((s) => s.brightnessConfig)
+  const innerChannels = useGlobalStore((s) => s.innerChannels)
+  const outerChannels = useGlobalStore((s) => s.outerChannels)
   const setOutputImage = useGlobalStore((s) => s.setOutputImage)
   const setOutputStatus = useGlobalStore((s) => s.setOutputStatus)
   const outputStatus = useGlobalStore((s) => s.outputStatus)
@@ -241,9 +242,24 @@ export function AppShell() {
       setOutputStatus(target, 'mixing')
       setMixerProgress(target, 0)
       const jobId = `fft-${target}-${crypto.randomUUID()}`
+      
+      // Build region weights from inner/outer channels (handles mute/solo in UI)
+      const weightsInside = innerChannels.map((ch) => ({
+        id: ch.id,
+        w1: ch.muted ? 0 : ch.weight1,
+        w2: ch.muted ? 0 : ch.weight2,
+      }))
+      const weightsOutside = outerChannels.map((ch) => ({
+        id: ch.id,
+        w1: ch.muted ? 0 : ch.weight1,
+        w2: ch.muted ? 0 : ch.weight2,
+      }))
+      
       const payload: MixerJobPayload = {
         images: loadedImages,
         weights: mixerConfig,
+        weightsInside,
+        weightsOutside,
         regionMask,
         brightnessConfig,
         targetViewport: target,
@@ -287,7 +303,7 @@ export function AppShell() {
         }
       }
     },
-    [brightnessConfig, fftMode, images, mixerConfig, pushToast, regionMask, safeMode.active, setFftMode, setMixerProgress, setOutputImage, setOutputStatus],
+    [brightnessConfig, fftMode, images, innerChannels, mixerConfig, outerChannels, pushToast, regionMask, safeMode.active, setFftMode, setMixerProgress, setOutputImage, setOutputStatus],
   )
 
   const runBeamSim = useCallback(async (config?: typeof beamConfig) => {
@@ -326,7 +342,7 @@ export function AppShell() {
     }
   }, [beamConfigRef, pushToast, safeMode.active, setBeamResult, setBeamStatus])
 
-  const scheduleBeamSim = useCallback(
+  const _scheduleBeamSim = useCallback(
     (nextConfig?: typeof beamConfig) => {
       if (nextConfig) {
         beamConfigRef.current = nextConfig
@@ -337,6 +353,7 @@ export function AppShell() {
     },
     [runBeamSim, setBeamConfig],
   )
+  void _scheduleBeamSim // Available for future beam worker integration
 
   // UI state for new components
   const [workspace, setWorkspace] = useState('Dual Workspace')
@@ -351,11 +368,12 @@ export function AppShell() {
   const normalizedSize = useGlobalStore((s) => s.normalizedSize)
 
   // Persistence hook - auto-saves state changes with debounce
-  const { loadAndRestore, saveNow, getInfo } = usePersistence({
+  const { loadAndRestore, saveNow: _saveNow, getInfo } = usePersistence({
     enabled: true,
     debounceMs: 1500,
     onSave: () => setLastSaved(new Date()),
   })
+  void _saveNow // Available for manual save triggers
 
   // Load persisted state on mount
   useEffect(() => {
@@ -556,6 +574,8 @@ export function AppShell() {
                   showSpectrum={showSpectrum}
                   spectrumData={spectrum[1] ?? undefined}
                   safeMode={safeMode.active}
+                  brightness={brightnessConfig.value / 255}
+                  contrast={brightnessConfig.contrast}
                 />
                 <div className="output-footer">
                   <label className="spectrum-toggle">
@@ -651,6 +671,8 @@ export function AppShell() {
                   showSpectrum={showSpectrum}
                   spectrumData={spectrum[2] ?? undefined}
                   safeMode={safeMode.active}
+                  brightness={brightnessConfig.value / 255}
+                  contrast={brightnessConfig.contrast}
                 />
                 <div className="output-footer">
                   <button
@@ -666,6 +688,54 @@ export function AppShell() {
                     📷 Snapshot
                   </button>
                 </div>
+                {snapshots.filter((s) => s.viewport === 2).length > 0 && (
+                  <div className="snapshot-strip">
+                    {snapshots
+                      .filter((s) => s.viewport === 2)
+                      .map((snap) => {
+                        const isSelected = compareSelection[2] === snap.id
+                        return (
+                          <canvas
+                            key={snap.id}
+                            className={`snapshot-thumb ${isSelected ? 'selected' : ''}`}
+                            width={48}
+                            height={36}
+                            onClick={() => setCompareSelection(2, isSelected ? null : snap.id)}
+                            title={new Date(snap.createdAt).toLocaleString()}
+                            ref={(el) => {
+                              if (!el) return
+                              const ctx = el.getContext('2d')
+                              if (!ctx) return
+                              // Convert grayscale to RGBA if needed
+                              const { pixels, width, height } = snap.image
+                              let rgbaPixels: Uint8ClampedArray<ArrayBuffer>
+                              if (pixels.length === width * height) {
+                                rgbaPixels = new Uint8ClampedArray(width * height * 4)
+                                for (let i = 0; i < pixels.length; i++) {
+                                  const v = pixels[i]
+                                  rgbaPixels[i * 4] = v
+                                  rgbaPixels[i * 4 + 1] = v
+                                  rgbaPixels[i * 4 + 2] = v
+                                  rgbaPixels[i * 4 + 3] = 255
+                                }
+                              } else {
+                                rgbaPixels = new Uint8ClampedArray(pixels.length)
+                                rgbaPixels.set(pixels)
+                              }
+                              const imgData = new ImageData(rgbaPixels, width, height)
+                              const off = document.createElement('canvas')
+                              off.width = width
+                              off.height = height
+                              const octx = off.getContext('2d')
+                              if (!octx) return
+                              octx.putImageData(imgData, 0, 0)
+                              ctx.drawImage(off, 0, 0, el.width, el.height)
+                            }}
+                          />
+                        )
+                      })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -673,210 +743,13 @@ export function AppShell() {
 
         {/* Part B - Beamforming Simulator */}
         <div className={`panel beam-panel ${activePanel === 'beam' ? 'active' : ''}`}>
-          <div className="panel-header">
-            <h2>
-              <span className="part-label">Part B</span>
-              <span className="accent">Beamforming Simulator</span>
-            </h2>
-          </div>
-          <div className="panel-content">
-            <div className="beam-controls">
-              <div className="beam-control-group">
-                <div className="control-item">
-                  <label>Render Mode</label>
-                  <select
-                    className="header-select"
-                    value={beamConfig.renderMode}
-                    onChange={(e) => {
-                      const renderMode = e.target.value as BeamJobPayload['renderMode']
-                      scheduleBeamSim({ ...beamConfigRef.current, renderMode })
-                    }}
-                    disabled={safeMode.active}
-                  >
-                    <option value="interference">Interference</option>
-                    <option value="beam-slice">Beam Slice</option>
-                    <option value="array-geometry">Array Geometry</option>
-                  </select>
-                </div>
-                <div className="control-item">
-                  <label>Wideband Mode</label>
-                  <select
-                    className="header-select"
-                    value={beamConfig.widebandMode}
-                    onChange={(e) => {
-                      const widebandMode = e.target.value as BeamJobPayload['widebandMode']
-                      scheduleBeamSim({ ...beamConfigRef.current, widebandMode })
-                    }}
-                    disabled={safeMode.active}
-                  >
-                    <option value="aggregated">Aggregated</option>
-                    <option value="per-carrier">Per-carrier</option>
-                  </select>
-                </div>
-                <div className="control-item">
-                  <label>Resolution</label>
-                  <input
-                    type="number"
-                    className="resolution-input"
-                    min={64}
-                    max={512}
-                    value={beamConfig.resolution}
-                    onChange={(e) => {
-                      const resolution = Number(e.target.value)
-                      scheduleBeamSim({ ...beamConfigRef.current, resolution })
-                    }}
-                    disabled={safeMode.active}
-                  />
-                </div>
-                <button 
-                  className="scenario-btn primary" 
-                  onClick={() => runBeamSim()} 
-                  disabled={safeMode.active || beamStatus === 'running'}
-                >
-                  {beamStatus === 'running' ? '⏳ Simulating...' : '▶ Run Beam (B)'}
-                </button>
-              </div>
-
-              <div className="beam-visualization">
-                <div className="joystick-container">
-                  <SteeringJoystick
-                    theta={beamConfig.steering.theta}
-                    phi={beamConfig.steering.phi}
-                    onChange={(steering) => scheduleBeamSim({ ...beamConfigRef.current, steering })}
-                  />
-                </div>
-                <div className="beam-result-container">
-                  {beamResult?.heatmap ? (
-                    (() => {
-                      const pixels = mapHeatmapToImageData(beamResult.heatmap, beamResult.width, beamResult.height)
-                      return (
-                        <div className="beam-canvas-wrapper">
-                          <AdaptiveCanvas 
-                            width={beamResult.width} 
-                            height={beamResult.height} 
-                            pixels={pixels} 
-                            label={`Mode: ${beamConfig.renderMode}`} 
-                          />
-                        </div>
-                      )
-                    })()
-                  ) : (
-                    <div className="beam-placeholder">
-                      <span>Run beam simulation to visualize</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+          <div className="beam-workspace">
+            <BeamformingStage />
           </div>
         </div>
 
-        {/* Parameter Sidebar */}
-        <div className="param-sidebar">
-          <div className="param-section open">
-            <div className="param-section-header" onClick={(e) => {
-              const section = (e.currentTarget as HTMLElement).parentElement
-              section?.classList.toggle('open')
-            }}>
-              <h3>⏱️ Delays & Phases</h3>
-              <span className="chevron">▶</span>
-            </div>
-            <div className="param-section-content">
-              <p>Adjust element delays and phases for beam steering</p>
-              <div className="param-row">
-                <label>θ (Theta)</label>
-                <input 
-                  type="range" 
-                  min="-90" 
-                  max="90" 
-                  value={beamConfig.steering.theta}
-                  onChange={(e) => scheduleBeamSim({ 
-                    ...beamConfigRef.current, 
-                    steering: { ...beamConfig.steering, theta: Number(e.target.value) } 
-                  })}
-                />
-                <span className="param-value">{beamConfig.steering.theta}°</span>
-              </div>
-              <div className="param-row">
-                <label>φ (Phi)</label>
-                <input 
-                  type="range" 
-                  min="-180" 
-                  max="180" 
-                  value={beamConfig.steering.phi}
-                  onChange={(e) => scheduleBeamSim({ 
-                    ...beamConfigRef.current, 
-                    steering: { ...beamConfig.steering, phi: Number(e.target.value) } 
-                  })}
-                />
-                <span className="param-value">{beamConfig.steering.phi}°</span>
-              </div>
-            </div>
-          </div>
-          <div className="param-section">
-            <div className="param-section-header" onClick={(e) => {
-              const section = (e.currentTarget as HTMLElement).parentElement
-              section?.classList.toggle('open')
-            }}>
-              <h3>📶 Frequencies</h3>
-              <span className="chevron">▶</span>
-            </div>
-            <div className="param-section-content">
-              <p>Configure frequency bands for simulation</p>
-            </div>
-          </div>
-          <div className="param-section">
-            <div className="param-section-header" onClick={(e) => {
-              const section = (e.currentTarget as HTMLElement).parentElement
-              section?.classList.toggle('open')
-            }}>
-              <h3>🎯 Scenarios</h3>
-              <span className="chevron">▶</span>
-            </div>
-            <div className="param-section-content">
-              <p>Save and load beam configurations</p>
-              <div className="scenario-actions">
-                <button className="scenario-btn" onClick={() => saveNow()}>
-                  💾 Save Current
-                </button>
-                <button className="scenario-btn" onClick={() => exportStateAsJson()}>
-                  📤 Export
-                </button>
-                <label className="scenario-btn">
-                  📥 Import
-                  <input 
-                    type="file" 
-                    accept=".json"
-                    style={{ display: 'none' }}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        const success = await importStateFromJson(file)
-                        if (success) {
-                          pushToast({ id: crypto.randomUUID(), type: 'success', message: 'Settings imported' })
-                        } else {
-                          pushToast({ id: crypto.randomUUID(), type: 'error', message: 'Import failed' })
-                        }
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-          <div className="param-section">
-            <div className="param-section-header" onClick={(e) => {
-              const section = (e.currentTarget as HTMLElement).parentElement
-              section?.classList.toggle('open')
-            }}>
-              <h3>⚙️ Algorithm</h3>
-              <span className="chevron">▶</span>
-            </div>
-            <div className="param-section-content">
-              <p>Advanced algorithm settings</p>
-            </div>
-          </div>
-        </div>
+        {/* Parameter Sidebar - Using new BeamSidebar component */}
+        <BeamSidebar />
       </main>
 
       {/* Measurements Ribbon */}
