@@ -136,9 +136,23 @@ export interface BrightnessConfig {
 
 export type OutputViewportId = 1 | 2
 
+/** Region edit target for per-pixel content mixing */
+export type RegionEditTarget = 'inside' | 'outside'
+
+/** Weight configuration for a single channel in a region */
+export interface RegionChannelWeight {
+  id: ImageSlotId
+  w1: number  // Magnitude or Real weight (0-1)
+  w2: number  // Phase or Imaginary weight (0-1)
+}
+
 export interface MixerJobPayload {
   images: Array<{ id: ImageSlotId; width: number; height: number; pixels: Uint8ClampedArray }>
   weights: MixerWeights
+  /** Inner region channel weights for per-pixel mixing */
+  weightsInside: RegionChannelWeight[]
+  /** Outer region channel weights for per-pixel mixing */
+  weightsOutside: RegionChannelWeight[]
   regionMask: RegionMask
   brightnessConfig: BrightnessConfig
   targetViewport: OutputViewportId
