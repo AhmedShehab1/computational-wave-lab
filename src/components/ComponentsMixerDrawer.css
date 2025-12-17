@@ -7,12 +7,14 @@
 .components-mixer-drawer {
   background-color: #0F111A !important;
   color: #e6edf3 !important;
-  border: 1px solid #334155;
+  border: 2px solid var(--region-border-color, #00aaff);
   border-radius: 8px;
   padding: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   min-width: 100%;
   box-sizing: border-box;
+  transition: border-color 0.3s ease;
+  box-shadow: 0 0 12px var(--region-border-color, rgba(0, 170, 255, 0.3));
 }
 
 /* ============================================================================
@@ -81,6 +83,53 @@
   border-radius: 50%;
   transition: transform 0.2s ease;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================================================
+   REGION TOGGLE (Inner / Outer)
+   ============================================================================ */
+
+.components-mixer-drawer .region-toggle-container {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 16px;
+  background-color: rgba(15, 17, 26, 0.8);
+  border-bottom: 1px solid #334155;
+}
+
+.components-mixer-drawer .region-toggle-btn {
+  flex: 1;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 2px solid rgba(100, 100, 100, 0.4);
+  border-radius: 6px;
+  background-color: rgba(30, 30, 40, 0.6);
+  color: rgba(230, 237, 243, 0.5);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.components-mixer-drawer .region-toggle-btn:hover {
+  background-color: rgba(50, 50, 60, 0.8);
+  color: rgba(230, 237, 243, 0.8);
+}
+
+.components-mixer-drawer .region-toggle-btn.active.inside {
+  background-color: rgba(0, 170, 255, 0.15);
+  border-color: #00aaff;
+  color: #00aaff;
+  box-shadow: 0 0 8px rgba(0, 170, 255, 0.4);
+}
+
+.components-mixer-drawer .region-toggle-btn.active.outside {
+  background-color: rgba(255, 136, 0, 0.15);
+  border-color: #ff8800;
+  color: #ff8800;
+  box-shadow: 0 0 8px rgba(255, 136, 0, 0.4);
 }
 
 /* ============================================================================

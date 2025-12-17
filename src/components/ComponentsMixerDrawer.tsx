@@ -29,20 +29,20 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
   // -------------------------------------------------------------------------
   const mixerConfig = useGlobalStore((s) => s.mixerConfig);
   const images = useGlobalStore((s) => s.images);
-  const updateMixerChannel = useGlobalStore((s) => s.updateMixerChannel);
+  const activeRegionEdit = useGlobalStore((s) => s.activeRegionEdit);
+  const innerChannels = useGlobalStore((s) => s.innerChannels);
+  const outerChannels = useGlobalStore((s) => s.outerChannels);
+  const setActiveRegionEdit = useGlobalStore((s) => s.setActiveRegionEdit);
+  const updateRegionChannel = useGlobalStore((s) => s.updateRegionChannel);
   const setMixerMode = useGlobalStore((s) => s.setMixerMode);
-  const toggleChannelMute = useGlobalStore((s) => s.toggleChannelMute);
-  const toggleChannelSolo = useGlobalStore((s) => s.toggleChannelSolo);
-  const toggleChannelLock = useGlobalStore((s) => s.toggleChannelLock);
+
+  // Get the current channels based on active region
+  const currentChannels = activeRegionEdit === 'inside' ? innerChannels : outerChannels;
 
   // Filter channels to only show those with loaded images (Reactive UX)
-  // Note: allChannels logic is inside useMemo to avoid dependency issues
   const activeChannels = useMemo(
-    () => {
-      const allChannels = mixerConfig.channels ?? [];
-      return allChannels.filter((ch) => images[ch.id] !== null);
-    },
-    [mixerConfig.channels, images]
+    () => currentChannels.filter((ch) => images[ch.id] !== null),
+    [currentChannels, images]
   );
 
   // Defer heavy state updates for 60fps slider responsiveness
@@ -61,19 +61,19 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
   const handleWeight1Change = useCallback(
     (id: ImageSlotId, value: number) => {
       startTransition(() => {
-        updateMixerChannel(id, { weight1: value });
+        updateRegionChannel(activeRegionEdit, id, { weight1: value });
       });
     },
-    [updateMixerChannel]
+    [updateRegionChannel, activeRegionEdit]
   );
 
   const handleWeight2Change = useCallback(
     (id: ImageSlotId, value: number) => {
       startTransition(() => {
-        updateMixerChannel(id, { weight2: value });
+        updateRegionChannel(activeRegionEdit, id, { weight2: value });
       });
     },
-    [updateMixerChannel]
+    [updateRegionChannel, activeRegionEdit]
   );
 
   const handleModeToggle = useCallback(() => {
@@ -81,14 +81,48 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
     setMixerMode(newMode);
   }, [mixerConfig.mode, setMixerMode]);
 
+  const handleToggleMute = useCallback(
+    (id: ImageSlotId) => {
+      const channel = currentChannels.find((ch) => ch.id === id);
+      if (channel) {
+        updateRegionChannel(activeRegionEdit, id, { muted: !channel.muted });
+      }
+    },
+    [updateRegionChannel, activeRegionEdit, currentChannels]
+  );
+
+  const handleToggleSolo = useCallback(
+    (id: ImageSlotId) => {
+      const channel = currentChannels.find((ch) => ch.id === id);
+      if (channel) {
+        updateRegionChannel(activeRegionEdit, id, { solo: !channel.solo });
+      }
+    },
+    [updateRegionChannel, activeRegionEdit, currentChannels]
+  );
+
+  const handleToggleLock = useCallback(
+    (id: ImageSlotId) => {
+      const channel = currentChannels.find((ch) => ch.id === id);
+      if (channel) {
+        const newLocked = !channel.locked;
+        updateRegionChannel(activeRegionEdit, id, { 
+          locked: newLocked,
+          ...(newLocked ? { weight2: channel.weight1 } : {})
+        });
+      }
+    },
+    [updateRegionChannel, activeRegionEdit, currentChannels]
+  );
+
   // -------------------------------------------------------------------------
-  // Compute warnings (clipping detection)
+  // Compute warnings (clipping detection) - now for 0-1 range
   // -------------------------------------------------------------------------
   const channelWarnings = useMemo(() => {
     const warnings = new Map<ImageSlotId, boolean>();
     for (const ch of activeChannels) {
-      // Warn if weight exceeds reasonable bounds
-      const hasWarning = ch.weight1 > 1.5 || ch.weight2 > 1.5 || ch.weight1 < 0 || ch.weight2 < 0;
+      // Warn if weight exceeds 1 or is negative
+      const hasWarning = ch.weight1 > 1 || ch.weight2 > 1 || ch.weight1 < 0 || ch.weight2 < 0;
       warnings.set(ch.id, hasWarning);
     }
     return warnings;
@@ -97,11 +131,18 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
   // Check if we have any loaded images
   const hasActiveChannels = activeChannels.length > 0;
 
+  // Border color based on active region
+  const regionBorderColor = activeRegionEdit === 'inside' ? '#00aaff' : '#ff8800';
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
   return (
-    <div className={`components-mixer-drawer ${className || ''}`} data-pending={isPending}>
+    <div 
+      className={`components-mixer-drawer ${className || ''}`} 
+      data-pending={isPending}
+      style={{ '--region-border-color': regionBorderColor } as React.CSSProperties}
+    >
       {/* Header */}
       <div className="mixer-header">
         <span className="mixer-title">COMPONENTS MIXER</span>
@@ -127,6 +168,24 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
         </div>
       </div>
 
+      {/* Region Toggle (Inner / Outer) */}
+      <div className="region-toggle-container">
+        <button
+          className={`region-toggle-btn ${activeRegionEdit === 'inside' ? 'active inside' : ''}`}
+          onClick={() => setActiveRegionEdit('inside')}
+          aria-pressed={activeRegionEdit === 'inside'}
+        >
+          Inner
+        </button>
+        <button
+          className={`region-toggle-btn ${activeRegionEdit === 'outside' ? 'active outside' : ''}`}
+          onClick={() => setActiveRegionEdit('outside')}
+          aria-pressed={activeRegionEdit === 'outside'}
+        >
+          Outer
+        </button>
+      </div>
+
       {/* Channel Rows or Empty State */}
       <div className="mixer-channels">
         {hasActiveChannels ? (
@@ -146,11 +205,11 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
 
               {/* Dual Slider Track */}
               <div className="channel-sliders">
-                {/* Weight 1 Slider (Magnitude / Real) */}
+                {/* Weight 1 Slider (Magnitude / Real) - Range 0-1 */}
                 <div className="slider-container">
                   <button
                     className={`lock-btn ${channel.locked ? 'locked' : ''}`}
-                    onClick={() => toggleChannelLock(channel.id)}
+                    onClick={() => handleToggleLock(channel.id)}
                     title={channel.locked ? 'Unlock weights' : 'Lock weights together'}
                     aria-pressed={channel.locked}
                   >
@@ -159,13 +218,13 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                   <div className="slider-track">
                     <div
                       className="slider-fill"
-                      style={{ width: `${Math.min(100, Math.max(0, channel.weight1 * 50))}%` }}
+                      style={{ width: `${Math.min(100, Math.max(0, channel.weight1 * 100))}%` }}
                     />
                     <input
                       type="range"
-                      min="-2"
-                      max="2"
-                      step="0.01"
+                      min="0"
+                      max="1"
+                      step="0.05"
                       value={channel.weight1}
                       onChange={(e) => handleWeight1Change(channel.id, parseFloat(e.target.value))}
                       className="slider-input"
@@ -173,7 +232,7 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                     />
                     <div
                       className="slider-thumb"
-                      style={{ left: `${((channel.weight1 + 2) / 4) * 100}%` }}
+                      style={{ left: `${channel.weight1 * 100}%` }}
                     />
                   </div>
                 </div>
@@ -184,13 +243,13 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                     <div className="slider-track phase">
                       <div
                         className="slider-fill"
-                        style={{ width: `${Math.min(100, Math.max(0, channel.weight2 * 50))}%` }}
+                        style={{ width: `${Math.min(100, Math.max(0, channel.weight2 * 100))}%` }}
                       />
                       <input
                         type="range"
-                        min="-2"
-                        max="2"
-                        step="0.01"
+                        min="0"
+                        max="1"
+                        step="0.05"
                         value={channel.weight2}
                         onChange={(e) => handleWeight2Change(channel.id, parseFloat(e.target.value))}
                         className="slider-input"
@@ -198,7 +257,7 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                       />
                       <div
                         className="slider-thumb phase"
-                        style={{ left: `${((channel.weight2 + 2) / 4) * 100}%` }}
+                        style={{ left: `${channel.weight2 * 100}%` }}
                       />
                     </div>
                   </div>
@@ -209,7 +268,7 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
               <div className="channel-controls">
                 <button
                   className={`control-btn mute ${channel.muted ? 'active' : ''}`}
-                  onClick={() => toggleChannelMute(channel.id)}
+                  onClick={() => handleToggleMute(channel.id)}
                   title="Mute channel"
                   aria-pressed={channel.muted}
                 >
@@ -217,7 +276,7 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                 </button>
                 <button
                   className={`control-btn solo ${channel.solo ? 'active' : ''}`}
-                  onClick={() => toggleChannelSolo(channel.id)}
+                  onClick={() => handleToggleSolo(channel.id)}
                   title="Solo channel"
                   aria-pressed={channel.solo}
                 >
@@ -225,7 +284,7 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                 </button>
                 <button
                   className={`control-btn lock ${channel.locked ? 'active' : ''}`}
-                  onClick={() => toggleChannelLock(channel.id)}
+                  onClick={() => handleToggleLock(channel.id)}
                   title={channel.locked ? 'Unlock weights' : 'Lock weights'}
                   aria-pressed={channel.locked}
                 >
@@ -233,13 +292,13 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
                 </button>
               </div>
 
-              {/* Numeric Input */}
+              {/* Numeric Input - Range 0-1 */}
               <input
                 type="number"
                 className="weight-input"
-                min="-2"
-                max="2"
-                step="0.01"
+                min="0"
+                max="1"
+                step="0.05"
                 value={channel.weight1.toFixed(2)}
                 onChange={(e) => handleWeight1Change(channel.id, parseFloat(e.target.value) || 0)}
                 aria-label={`${CHANNEL_LABELS[channel.id]} weight value`}
@@ -276,13 +335,6 @@ export const ComponentsMixerDrawer: React.FC<ComponentsMixerDrawerProps> = ({ cl
             <p className="empty-text">Load images in the grid to enable mixing controls.</p>
           </div>
         )}
-      </div>
-
-      {/* Footer Info */}
-      <div className="mixer-footer">
-        <span className="footer-info">
-          🔵 IFFT Duration: ~12ms (Depends on FFT Size)
-        </span>
       </div>
     </div>
   );
