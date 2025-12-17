@@ -1,0 +1,172 @@
+/* ============================================================================
+   INTERFERENCE CANVAS - 2D Heatmap Visualization
+   ============================================================================ */
+
+.interference-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0F111A;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.interference-canvas {
+  /* Canvas renders at low res (300x300) but scales up smoothly */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* Use pixelated for sharp edges, or auto for smooth interpolation */
+  image-rendering: auto;
+  border-radius: 4px;
+}
+
+/* ============================================================================
+   OVERLAY INFO
+   ============================================================================ */
+
+.interference-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.computing-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  background: rgba(15, 17, 26, 0.9);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+}
+
+.computing-indicator span {
+  font-size: 11px;
+  color: rgba(230, 237, 243, 0.8);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.progress-bar {
+  width: 120px;
+  height: 4px;
+  background: rgba(30, 41, 59, 0.8);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #00F0FF 0%, #00B8D4 100%);
+  border-radius: 2px;
+  transition: width 0.1s ease-out;
+}
+
+.compute-time {
+  padding: 6px 10px;
+  background: rgba(15, 17, 26, 0.85);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 4px;
+  font-size: 10px;
+  color: rgba(0, 240, 255, 0.8);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ============================================================================
+   COLORBAR LEGEND
+   ============================================================================ */
+
+.colorbar {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.colorbar-gradient {
+  width: 16px;
+  height: 150px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* Turbo colormap gradient approximation */
+  background: linear-gradient(
+    to bottom,
+    #f9fb0e 0%,     /* High - Yellow */
+    #f2a72e 20%,    /* Orange */
+    #e45a31 40%,    /* Red-Orange */
+    #9e2963 60%,    /* Purple */
+    #462f7c 80%,    /* Deep Purple */
+    #30123b 100%    /* Low - Dark Blue */
+  );
+}
+
+.colorbar-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 150px;
+  font-size: 10px;
+  color: rgba(230, 237, 243, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ============================================================================
+   AXIS LABELS
+   ============================================================================ */
+
+.axis-labels {
+  position: absolute;
+  pointer-events: none;
+}
+
+.axis-labels .axis-x {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: rgba(230, 237, 243, 0.5);
+  letter-spacing: 0.05em;
+}
+
+.axis-labels .axis-y {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  font-size: 11px;
+  color: rgba(230, 237, 243, 0.5);
+  letter-spacing: 0.05em;
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .colorbar {
+    right: 8px;
+  }
+  
+  .colorbar-gradient {
+    width: 12px;
+    height: 100px;
+  }
+  
+  .colorbar-labels {
+    height: 100px;
+    font-size: 9px;
+  }
+}
