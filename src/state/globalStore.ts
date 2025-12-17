@@ -51,6 +51,12 @@ export interface GlobalState {
   workspaceDimensions: { width: number; height: number }
   normalizedSize?: { width: number; height: number }
   mixerConfig: MixerWeights
+  /** Active region being edited (inside or outside) */
+  activeRegionEdit: 'inside' | 'outside'
+  /** Channel weights for inside region (per-pixel mixing) */
+  innerChannels: MixerChannel[]
+  /** Channel weights for outside region (per-pixel mixing) */
+  outerChannels: MixerChannel[]
   regionMask: RegionMask
   brightnessConfig: BrightnessConfig
   outputImages: Record<OutputViewportId, ImageDataPayload | null>
@@ -93,6 +99,8 @@ export interface GlobalState {
   toggleChannelMute: (id: ImageSlotId) => void
   toggleChannelSolo: (id: ImageSlotId) => void
   toggleChannelLock: (id: ImageSlotId) => void
+  setActiveRegionEdit: (target: 'inside' | 'outside') => void
+  updateRegionChannel: (region: 'inside' | 'outside', id: ImageSlotId, updates: Partial<MixerChannel>) => void
   setRegionMask: (mask: RegionMask) => void
   setBrightnessConfig: (config: BrightnessConfig) => void
   setFiles: (files: FileMeta[]) => void
@@ -130,6 +138,19 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
   workspaceDimensions: { width: 0, height: 0 },
   normalizedSize: undefined,
   mixerConfig: DEFAULT_MIXER_CONFIG,
+  activeRegionEdit: 'inside',
+  innerChannels: [
+    createDefaultChannel('A'),
+    createDefaultChannel('B'),
+    createDefaultChannel('C'),
+    createDefaultChannel('D'),
+  ],
+  outerChannels: [
+    createDefaultChannel('A'),
+    createDefaultChannel('B'),
+    createDefaultChannel('C'),
+    createDefaultChannel('D'),
+  ],
   regionMask: { shape: 'circle', mode: 'include', radius: 1 },
   brightnessConfig: { target: 'spatial', value: 0, contrast: 1 },
   outputImages: { 1: null, 2: null },
@@ -216,6 +237,25 @@ export const useGlobalStore = create<GlobalState>((set, get) => ({
         : { ...ch, locked: false }
     })
     set({ mixerConfig: { ...current, channels } })
+  },
+  setActiveRegionEdit: (target) => set({ activeRegionEdit: target }),
+  updateRegionChannel: (region, id, updates) => {
+    const key = region === 'inside' ? 'innerChannels' : 'outerChannels'
+    const channels = get()[key]
+    const updatedChannels = channels.map((ch) => {
+      if (ch.id !== id) return ch
+      const updated = { ...ch, ...updates }
+      // If locked and weight1 changed, sync weight2
+      if (updated.locked && updates.weight1 !== undefined) {
+        updated.weight2 = updates.weight1
+      }
+      // If locked and weight2 changed, sync weight1
+      if (updated.locked && updates.weight2 !== undefined) {
+        updated.weight1 = updates.weight2
+      }
+      return updated
+    })
+    set({ [key]: updatedChannels })
   },
   setRegionMask: (mask) => set({ regionMask: mask }),
   setBrightnessConfig: (config) => set({ brightnessConfig: config }),
