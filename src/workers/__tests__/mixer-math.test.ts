@@ -106,9 +106,51 @@ function createPayload(
     brightnessConfig: MixerJobPayload['brightnessConfig']
   }> = {}
 ): MixerJobPayload {
+  // Compute effective weights handling mute/solo logic
+  const channels = weights.channels
+  const soloActive = channels.some((ch) => ch.solo)
+  
+  let regionWeights: Array<{ id: ImageSlotId; w1: number; w2: number }>
+  
+  // Handle legacy mode when channels array is empty
+  if (channels.length === 0) {
+    const legacyValues = weights.values ?? [1, 1, 1, 1]
+    const slotIds: ImageSlotId[] = ['A', 'B', 'C', 'D']
+    regionWeights = slotIds.map((id, i) => ({
+      id,
+      w1: legacyValues[i] ?? 1,
+      w2: legacyValues[i] ?? 1,
+    }))
+  } else {
+    regionWeights = channels.map((ch) => {
+      let w1: number
+      let w2: number
+      
+      if (ch.muted) {
+        w1 = 0
+        w2 = 0
+      } else if (soloActive) {
+        if (ch.solo) {
+          w1 = ch.weight1
+          w2 = ch.weight2
+        } else {
+          w1 = 0
+          w2 = 0
+        }
+      } else {
+        w1 = ch.weight1
+        w2 = ch.weight2
+      }
+      
+      return { id: ch.id, w1, w2 }
+    })
+  }
+  
   return {
     images,
     weights,
+    weightsInside: regionWeights,
+    weightsOutside: regionWeights,
     regionMask: options.regionMask ?? { shape: 'circle', mode: 'include', radius: 1 },
     brightnessConfig: options.brightnessConfig ?? { target: 'spatial', value: 0, contrast: 1 },
     targetViewport: 1,
