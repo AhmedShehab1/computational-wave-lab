@@ -7,7 +7,6 @@ import { UploadPanel } from '@/components/UploadPanel'
 import { ComponentsMixerDrawer } from '@/components/ComponentsMixerDrawer'
 import { RegionControls } from '@/components/RegionControls'
 import { OutputViewport } from '@/components/OutputViewport'
-import { MeasurementsRibbon, createDefaultMeasurements } from '@/components/MeasurementsRibbon'
 import { StatusBar } from '@/components/StatusBar'
 import { SourceImageGridEnhanced } from '@/components/SourceImageGridEnhanced'
 import { BeamSidebar } from '@/components/BeamSidebar'
@@ -358,7 +357,6 @@ export function AppShell() {
   // UI state for new components
   const [workspace, setWorkspace] = useState('Dual Workspace')
   const [educationalMode, setEducationalMode] = useState(false)
-  const [measurements, setMeasurements] = useState(createDefaultMeasurements(15.2, 12.4, 14.3, -13.2))
   const [systemLoad, setSystemLoad] = useState(25)
   const [memoryUsage, setMemoryUsage] = useState(40)
   const [showSourceGrid, setShowSourceGrid] = useState(true)
@@ -384,18 +382,6 @@ export function AppShell() {
     const info = getInfo()
     if (info?.lastSaved) setLastSaved(info.lastSaved)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Update measurements on beam result change
-  useEffect(() => {
-    if (beamResult) {
-      setMeasurements(createDefaultMeasurements(
-        15 + Math.random() * 5,
-        12 + Math.random() * 3,
-        14 + Math.random() * 2,
-        -13 - Math.random() * 3
-      ))
-    }
-  }, [beamResult])
 
   // Fake system metrics
   useEffect(() => {
@@ -751,9 +737,6 @@ export function AppShell() {
         {/* Parameter Sidebar - Using new BeamSidebar component */}
         <BeamSidebar />
       </main>
-
-      {/* Measurements Ribbon */}
-      <MeasurementsRibbon measurements={measurements} />
 
       {/* Status Bar */}
       <StatusBar

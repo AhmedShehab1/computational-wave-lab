@@ -161,14 +161,16 @@
 .animate-spin { animation: spin 1s linear infinite; }
 .animate-glow { animation: glow 2s ease-in-out infinite; }
 
-/* App Shell */
+/* App Shell - SINGLE SCREEN DASHBOARD (No body scroll) */
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;           /* Lock to viewport */
+  max-height: 100vh;       /* Prevent overflow */
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto; /* header, tabs, workspace, status */
   background: var(--bg-dark);
   color: var(--text-primary);
   font-size: 13px;
+  overflow: hidden;        /* CRITICAL: Never let body scroll */
 }
 
 /* ============ TOP HEADER ============ */
@@ -277,21 +279,30 @@
   color: var(--text-secondary);
 }
 
-/* ============ MAIN WORKSPACE ============ */
+/* ============ MAIN WORKSPACE - VIEWPORT LOCKED ============ */
 .main-workspace {
   display: grid;
   grid-template-columns: 1fr 1fr 280px;
   gap: 0;
   padding: 0;
   overflow: hidden;
+  min-height: 0;           /* CRITICAL: Allow grid item to shrink */
+  height: 100%;            /* Fill available space exactly */
 }
 
-/* Panel Base */
+/* Panel Base - FLEX COLUMN WITH SHRINK CAPABILITY */
 .panel {
   background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
+  min-height: 0;           /* Allow panel to shrink below content size */
+  overflow: hidden;        /* Contain internal overflow */
+}
+
+/* Part A Panel - Allow internal scrolling when content too tall */
+.panel.fourier-panel {
+  overflow-y: auto;        /* Internal scroll if needed */
 }
 
 .panel-header {
@@ -325,14 +336,20 @@
   flex: 1;
   padding: 12px;
   overflow-y: auto;
+  min-height: 0;           /* CRITICAL: Allow flex child to shrink */
+  display: flex;
+  flex-direction: column;
 }
 
-/* ============ SOURCE IMAGE GRID ============ */
+/* ============ SOURCE IMAGE GRID - SHRINKABLE ============ */
 .source-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-bottom: 12px;
+  flex: 1 1 auto;          /* Grow and shrink */
+  min-height: 180px;       /* Minimum before scrolling */
+  overflow: hidden;        /* Contain overflow */
 }
 
 .source-card {
@@ -991,12 +1008,16 @@
   color: var(--text-dim);
 }
 
-/* ============ OUTPUT VIEWPORTS ============ */
+/* ============ OUTPUT VIEWPORTS - FIXED HEIGHT ============ */
 .output-section {
   background: var(--bg-panel-alt);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  margin-bottom: 12px;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 130px;       /* Minimum height for each output */
+  height: 100%;            /* Fill grid cell */
 }
 
 .output-header {
@@ -1060,14 +1081,21 @@
 
 .output-canvas-container {
   position: relative;
-  aspect-ratio: 16/10;
+  flex: 1 1 auto;          /* Grow to fill */
+  min-height: 60px;        /* Minimum visibility */
   background: #080a0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .output-canvas-container canvas {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;     /* Scale to fit */
 }
 
 .output-canvas-container .spectrum-inset {
@@ -2891,26 +2919,29 @@ select:focus-visible {
   margin-top: 4px;
 }
 
-/* ============ OUTPUT GRID ============ */
+/* ============ OUTPUT GRID - WITH SAFETY FLOOR ============ */
 .output-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 16px;
+  gap: 12px;
+  margin-top: 12px;
+  flex: 0 0 auto;          /* Don't shrink - fixed height */
+  min-height: 280px;       /* SAFETY FLOOR: Ensure outputs visible */
 }
 
 @media (max-width: 900px) {
   .output-grid {
     grid-template-columns: 1fr;
+    min-height: 400px;     /* More height when stacked */
   }
 }
 
-/* ============ BEAM CONTROLS ============ */
+/* ============ BEAM CONTROLS - VIEWPORT LOCKED ============ */
 .beam-workspace {
   display: flex;
   flex: 1;
   height: 100%;
-  max-height: calc(100vh - 140px);  /* Constrain to viewport minus header/ribbon/status */
+  min-height: 0;           /* CRITICAL: Allow shrinking */
   overflow: hidden;
 }
 
