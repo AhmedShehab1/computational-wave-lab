@@ -1,13 +1,16 @@
-/* Source Image Grid - Minimalist Dark Theme */
+/* Source Image Grid - SINGLE SCREEN DASHBOARD */
 
 .source-image-grid-enhanced {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 12px;
   background: rgba(13, 17, 23, 0.8);
   border-radius: 12px;
   border: 1px solid rgba(77, 208, 225, 0.1);
+  flex: 1 1 auto;            /* Grow and shrink */
+  min-height: 0;             /* CRITICAL: Allow shrinking */
+  overflow: hidden;
 }
 
 /* Header */
@@ -37,12 +40,15 @@
   font-family: 'SF Mono', 'JetBrains Mono', monospace;
 }
 
-/* 2x2 Grid Container */
+/* 2x2 Grid Container - SHRINKABLE */
 .source-image-grid-enhanced .grid-container {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 10px;
+  grid-template-rows: repeat(2, minmax(0, 1fr)); /* Allow rows to shrink */
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;             /* Allow shrinking below content */
+  overflow: hidden;
 }
 
 /* Region Controls */
@@ -142,7 +148,7 @@
 }
 
 /* ============================================
-   Source Card Styles (Individual Card)
+   Source Card Styles - SHRINKABLE
    ============================================ */
 
 .source-card {
@@ -153,6 +159,7 @@
   border-radius: 8px;
   overflow: hidden;
   transition: border-color 0.2s ease;
+  min-height: 0;             /* Allow shrinking */
 }
 
 .source-card:hover {
@@ -168,19 +175,25 @@
   pointer-events: none;
 }
 
-/* Main row: image + chart side by side */
+/* Main row: image + chart side by side - SHRINKABLE */
 .source-card .card-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  min-height: 110px;
+  min-height: 0;             /* Allow row to shrink */
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
-/* Image Viewport (left side) */
+/* Image Viewport (left side) - SHRINKABLE */
 .source-card .image-viewport {
   position: relative;
   background: #0a0c14;
   cursor: crosshair;
-  aspect-ratio: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .source-card .image-viewport.dragging {
@@ -188,9 +201,12 @@
 }
 
 .source-card .viewport-canvas {
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   display: block;
+  object-fit: contain;       /* Scale down to fit */
 }
 
 .source-card .loading-spinner {

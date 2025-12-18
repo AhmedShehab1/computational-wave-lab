@@ -1,7 +1,7 @@
 /* ============================================================================
    BEAM SIDEBAR - Professional DSP Parameter Panel
    Dark Theme (#0F111A) with Neon Teal (#00F0FF) Accents
-   COMPACT COCKPIT LAYOUT
+   SINGLE-SCREEN DASHBOARD - No max-height, fills parent
    ============================================================================ */
 
 /* ============================================================================
@@ -15,7 +15,7 @@
   min-width: 260px;
   max-width: 320px;
   height: 100%;
-  max-height: calc(100vh - 140px);  /* Bound to viewport */
+  min-height: 0;             /* CRITICAL: Allow shrinking */
   background-color: #0F111A;
   border-left: 1px solid #1E293B;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
