@@ -188,10 +188,28 @@ function calculateHistogram(data: Float32Array, bins: number = 256) {
   return { bins: normalizedBins, min, max, mean, stdDev };
 }
 
-// Normalize to uint8
-function normalizeToUint8(data: Float32Array, applyLog: boolean = false): Uint8ClampedArray {
+/**
+ * Normalize to uint8 for visualization.
+ * 
+ * DSP Standard Visualization Rules:
+ * - Magnitude: Apply log(1 + |F|) then scale [min,max] → [0,255]
+ * - Phase: Scale [-π, π] → [0, 255]  
+ * - Real/Imaginary: Symmetric mapping where Zero → Gray (128)
+ *   Negative values → Black, Positive values → White
+ * 
+ * @param data - Input Float32Array
+ * @param applyLog - Whether to apply log scaling (for magnitude)
+ * @param symmetricZero - Whether to map zero to 128 (for real/imag)
+ */
+function normalizeToUint8(
+  data: Float32Array, 
+  applyLog: boolean = false,
+  symmetricZero: boolean = false
+): Uint8ClampedArray {
   let processed = data;
+  
   if (applyLog) {
+    // Log scale for magnitude: log(1 + |F|)
     processed = new Float32Array(data.length);
     for (let i = 0; i < data.length; i++) {
       processed[i] = Math.log1p(Math.abs(data[i]));
@@ -204,11 +222,26 @@ function normalizeToUint8(data: Float32Array, applyLog: boolean = false): Uint8C
     if (processed[i] < min) min = processed[i];
     if (processed[i] > max) max = processed[i];
   }
-  const range = max - min || 1;
+  
   const result = new Uint8ClampedArray(processed.length);
-  for (let i = 0; i < processed.length; i++) {
-    result[i] = Math.round(((processed[i] - min) / range) * 255);
+  
+  if (symmetricZero) {
+    // For Real/Imaginary: map zero to 128 (gray)
+    // Negative → Black (0), Zero → Gray (128), Positive → White (255)
+    const absMax = Math.max(Math.abs(min), Math.abs(max)) || 1;
+    for (let i = 0; i < processed.length; i++) {
+      // Scale from [-absMax, absMax] to [0, 255] with 0 at 128
+      const normalized = (processed[i] / absMax) * 127 + 128;
+      result[i] = Math.round(Math.max(0, Math.min(255, normalized)));
+    }
+  } else {
+    // Standard linear mapping for magnitude/phase
+    const range = max - min || 1;
+    for (let i = 0; i < processed.length; i++) {
+      result[i] = Math.round(((processed[i] - min) / range) * 255);
+    }
   }
+  
   return result;
 }
 
@@ -230,6 +263,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<FFTHistogramPa
     // Extract requested component
     let componentData: Float32Array;
     let applyLog = false;
+    let symmetricZero = false;  // For real/imag: zero → gray (128)
     
     switch (component) {
       case 'magnitude':
@@ -237,19 +271,22 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<FFTHistogramPa
         for (let i = 0; i < real.length; i++) {
           componentData[i] = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
         }
-        applyLog = true; // Log scale for better visualization
+        applyLog = true; // Log scale for better visualization: log(1 + |F|)
         break;
       case 'phase':
         componentData = new Float32Array(real.length);
         for (let i = 0; i < real.length; i++) {
           componentData[i] = Math.atan2(imag[i], real[i]);
         }
+        // Phase naturally ranges [-π, π], linear mapping is fine
         break;
       case 'real':
         componentData = real;
+        symmetricZero = true; // Zero → Gray (128)
         break;
       case 'imag':
         componentData = imag;
+        symmetricZero = true; // Zero → Gray (128)
         break;
       default:
         throw new Error(`Unknown component: ${component}`);
@@ -261,8 +298,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessageEnvelope<FFTHistogramPa
     // Calculate histogram
     const histogram = calculateHistogram(shifted);
     
-    // Normalize for visualization
-    const visualData = normalizeToUint8(shifted, applyLog);
+    // Normalize for visualization with DSP-standard mapping
+    const visualData = normalizeToUint8(shifted, applyLog, symmetricZero);
     
     const result: FFTHistogramResult = {
       histogram,
