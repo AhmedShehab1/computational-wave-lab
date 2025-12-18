@@ -1,19 +1,18 @@
 /* ============================================================================
    BEAMFORMING STAGE - Main Visualization Area
    Dark Theme (#0F111A) with Neon Teal (#00F0FF) Accents
-   COMPACT COCKPIT LAYOUT - CSS Grid, no infinite growth
+   SINGLE-SCREEN DASHBOARD - Fills available space exactly
    ============================================================================ */
 
 /* ============================================================================
-   CONTAINER - CSS Grid for bounded layout
+   CONTAINER - VIEWPORT LOCKED LAYOUT
    ============================================================================ */
 
 .beamforming-stage {
   display: grid;
   grid-template-rows: auto 1fr auto;  /* header | content | info-bar */
   height: 100%;
-  max-height: calc(100vh - 140px);    /* Account for header + ribbon + status */
-  min-height: 400px;
+  min-height: 0;                      /* CRITICAL: Allow shrinking */
   background-color: #0F111A;
   border-radius: 8px;
   overflow: hidden;

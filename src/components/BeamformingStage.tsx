@@ -8,9 +8,10 @@
  * - Array Geometry (Sensor Layout)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PolarPlot } from './viz/PolarPlot';
 import { InterferenceCanvas } from './viz/InterferenceCanvas';
+import { MeasurementsRibbon, createDefaultMeasurements } from './MeasurementsRibbon';
 import { useBeamStore } from '@/state/beamStore';
 import './BeamformingStage.css';
 
@@ -217,6 +218,17 @@ export const BeamformingStage: React.FC = () => {
   const frequency = useBeamStore((s) => s.frequency);
   const wavelength = useBeamStore((s) => s.wavelength);
   
+  // Create measurements for the ribbon
+  const measurements = useMemo(() => {
+    // Calculate approximate beam metrics from array parameters
+    const snr = 10 + Math.log10(sensorCount) * 10; // SNR scales with array gain
+    const directivity = 10 * Math.log10(sensorCount); // Directivity in dBi
+    const beamwidth = (51 / sensorCount) * (wavelength / 0.01); // Approx 3dB beamwidth
+    const sidelobeLevel = -13.3 - 10 * Math.log10(sensorCount / 8); // First sidelobe level
+    
+    return createDefaultMeasurements(snr, directivity, beamwidth, Math.abs(sidelobeLevel));
+  }, [sensorCount, wavelength]);
+  
   const handleToolAction = (action: string) => {
     setToolMode(action);
     // Tool actions will be implemented in future phases
@@ -287,6 +299,9 @@ export const BeamformingStage: React.FC = () => {
           </span>
         </div>
       </div>
+      
+      {/* Measurements Ribbon - Docked inside Part B */}
+      <MeasurementsRibbon measurements={measurements} compact />
     </div>
   );
 };
