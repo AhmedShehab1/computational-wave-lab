@@ -83,7 +83,12 @@ function calculateHistogram(data: Float32Array, bins: number = 256) {
 }
 
 // Normalize to uint8 (same as in worker)
-function normalizeToUint8(data: Float32Array, applyLog: boolean = false): Uint8ClampedArray {
+// DSP Standard: symmetricZero maps zero to gray (128) for real/imag components
+function normalizeToUint8(
+  data: Float32Array, 
+  applyLog: boolean = false,
+  symmetricZero: boolean = false
+): Uint8ClampedArray {
   let processed = data
   if (applyLog) {
     processed = new Float32Array(data.length)
@@ -98,10 +103,21 @@ function normalizeToUint8(data: Float32Array, applyLog: boolean = false): Uint8C
     if (processed[i] < min) min = processed[i]
     if (processed[i] > max) max = processed[i]
   }
-  const range = max - min || 1
+  
   const result = new Uint8ClampedArray(processed.length)
-  for (let i = 0; i < processed.length; i++) {
-    result[i] = Math.round(((processed[i] - min) / range) * 255)
+  
+  if (symmetricZero) {
+    // For Real/Imaginary: map zero to 128 (gray)
+    const absMax = Math.max(Math.abs(min), Math.abs(max)) || 1
+    for (let i = 0; i < processed.length; i++) {
+      const normalized = (processed[i] / absMax) * 127 + 128
+      result[i] = Math.round(Math.max(0, Math.min(255, normalized)))
+    }
+  } else {
+    const range = max - min || 1
+    for (let i = 0; i < processed.length; i++) {
+      result[i] = Math.round(((processed[i] - min) / range) * 255)
+    }
   }
   return result
 }
@@ -349,6 +365,64 @@ describe('FFT Histogram Worker Functions', () => {
 
       expect(result[0]).toBe(0)
       expect(result[2]).toBe(255)
+    })
+
+    describe('symmetricZero mode (for Real/Imaginary)', () => {
+      it('should map zero to gray (128)', () => {
+        const data = new Float32Array([-100, 0, 100])
+
+        const result = normalizeToUint8(data, false, true)
+
+        // Zero should be exactly 128 (gray)
+        expect(result[1]).toBe(128)
+      })
+
+      it('should map negative to black, positive to white', () => {
+        const data = new Float32Array([-100, 0, 100])
+
+        const result = normalizeToUint8(data, false, true)
+
+        expect(result[0]).toBe(1)    // Most negative → near black
+        expect(result[1]).toBe(128)  // Zero → gray
+        expect(result[2]).toBe(255)  // Most positive → white
+      })
+
+      it('should handle asymmetric ranges correctly', () => {
+        // When range is asymmetric, zero should still be 128
+        const data = new Float32Array([-50, 0, 200])
+
+        const result = normalizeToUint8(data, false, true)
+
+        // absMax = 200, so:
+        // -50: (-50/200)*127 + 128 = -31.75 + 128 = 96.25 ≈ 96
+        // 0: 128
+        // 200: (200/200)*127 + 128 = 255
+        expect(result[0]).toBe(96)
+        expect(result[1]).toBe(128)
+        expect(result[2]).toBe(255)
+      })
+
+      it('should handle all-negative values', () => {
+        const data = new Float32Array([-100, -50, -10])
+
+        const result = normalizeToUint8(data, false, true)
+
+        // All should be below 128 (gray)
+        expect(result[0]).toBeLessThan(128)
+        expect(result[1]).toBeLessThan(128)
+        expect(result[2]).toBeLessThan(128)
+      })
+
+      it('should handle all-positive values', () => {
+        const data = new Float32Array([10, 50, 100])
+
+        const result = normalizeToUint8(data, false, true)
+
+        // All should be above 128 (gray)
+        expect(result[0]).toBeGreaterThan(128)
+        expect(result[1]).toBeGreaterThan(128)
+        expect(result[2]).toBeGreaterThan(128)
+      })
     })
   })
 
